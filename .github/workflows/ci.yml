@@ -1,0 +1,37 @@
+name: backend-ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kscwc
+          POSTGRES_PASSWORD: kscwc
+          POSTGRES_DB: kscwc_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kscwc" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
+      DIRECT_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
+      TEST_DATABASE_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
+      SESSION_SECRET: ci_session_secret_0123456789abcdef
+      CSRF_SECRET: ci_csrf_secret_0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: npx playwright install --with-deps chromium
+      - run: pnpm typecheck
+      - run: pnpm test

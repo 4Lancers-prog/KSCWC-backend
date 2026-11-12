@@ -1,0 +1,25 @@
+# docker-compose.yml — local PostgreSQL for development + tests.
+# Usage: `docker compose up -d`  then set DATABASE_URL / TEST_DATABASE_URL to the URLs below.
+services:
+  db:
+    image: postgres:16
+    container_name: kscwc_db
+    environment:
+      POSTGRES_USER: kscwc
+      POSTGRES_PASSWORD: kscwc_dev
+      POSTGRES_DB: kscwc_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - kscwc_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kscwc']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  kscwc_pgdata:
+# DATABASE_URL=postgresql://kscwc:kscwc_dev@localhost:5432/kscwc_dev
+# TEST_DATABASE_URL=postgresql://kscwc:kscwc_dev@localhost:5432/kscwc_test

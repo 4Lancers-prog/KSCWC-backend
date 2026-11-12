@@ -1,0 +1,517 @@
+// schema.prisma — PostgreSQL source of truth for the KSCWC portal.
+// Money is stored as integer paise (bigint). Timestamps are timestamptz (UTC).
+// Migrations are the source of truth; this schema generates the Prisma client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ──────────────────────────────── Enums ─────────────────────────────────
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+  SUPPORT
+}
+
+enum AccountStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum CustomerStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum WalletTxType {
+  TOPUP
+  CARD_CHARGE
+  REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+  REVERSAL
+}
+
+enum WalletTxDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WalletTxStatus {
+  PENDING
+  POSTED
+  FAILED
+  REVERSED
+}
+
+enum PaymentOrderStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum FidStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum ContentType {
+  ANNOUNCEMENT
+  VIDEO
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CommitteeType {
+  FOUNDER
+  TRUSTEE
+  STATE
+  DISTRICT
+}
+
+enum DocumentVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+// Generic application/ticket status pool (one enum, interpreted per form).
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  NEEDS_INFORMATION
+  APPROVED
+  REJECTED
+  COMPLETED
+  REGISTERED
+  CONFIRMED
+  ATTENDED
+  CANCELLED
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_USER
+  RESOLVED
+  CLOSED
+}
+
+// ─────────────────────────────── Models ─────────────────────────────────
+model User {
+  id              String        @id @default(uuid()) @db.Uuid
+  fullName        String        @map("full_name") @db.VarChar(120)
+  phoneNormalized String        @unique @map("phone_normalized") @db.VarChar(16)
+  emailNormalized String?       @unique @map("email_normalized") @db.VarChar(254)
+  passwordHash    String        @map("password_hash")
+  role            Role          @default(USER)
+  accountStatus   AccountStatus @default(PENDING_APPROVAL) @map("account_status")
+  gender          String?       @db.VarChar(20)
+  dob             DateTime?     @db.Date
+  centreName      String?       @map("centre_name") @db.VarChar(160)
+  cscId           String?       @map("csc_id") @db.VarChar(80)
+  profilePhotoKey String?       @map("profile_photo_key")
+  mfaSecret       String?       @map("mfa_secret") // TOTP secret for admins (encrypted at rest in prod)
+  mfaEnabled      Boolean       @default(false) @map("mfa_enabled")
+  rejectedReason  String?       @map("rejected_reason")
+  approvedById    String?       @map("approved_by") @db.Uuid
+  approvedBy      User?         @relation("UserApprovals", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedUsers   User[]        @relation("UserApprovals")
+  approvedAt      DateTime?     @map("approved_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  walletAccount      WalletAccount?
+  customers          Customer[]          @relation("CustomerOwner")
+  passwordResets     PasswordResetToken[]
+  fidGenerations     FidGeneration[]
+  auditLogs          AuditLog[]
+  manualTopups       ManualTopupRequest[]
+
+  @@index([phoneNormalized])
+  @@map("users")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique @map("token_hash") // store hashed, single-use, short-lived
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Service {
+  id              String     @id @default(uuid()) @db.Uuid
+  code            String     @unique @db.VarChar(80)
+  nameKn          String     @map("name_kn") @db.VarChar(200)
+  nameEn          String?    @map("name_en") @db.VarChar(200)
+  description     String?
+  isActive        Boolean    @default(true) @map("is_active")
+  sortOrder       Int        @default(0) @map("sort_order")
+  defaultFeePaise BigInt?    @map("default_fee_paise")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customers Customer[]
+
+  @@map("services")
+}
+
+model Customer {
+  id               String         @id @default(uuid()) @db.Uuid
+  ownerUserId      String         @map("owner_user_id") @db.Uuid
+  owner            User           @relation("CustomerOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  serviceId        String         @map("service_id") @db.Uuid
+  service          Service        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  fullName         String         @map("full_name") @db.VarChar(120)
+  mobileNormalized String         @map("mobile_normalized") @db.VarChar(16)
+  referenceCode    String?        @map("reference_code") @db.VarChar(100)
+  feePaise         BigInt?        @map("fee_paise")
+  status           CustomerStatus @default(PENDING)
+  notes            String?
+  createdById      String?        @map("created_by") @db.Uuid
+  updatedById      String?        @map("updated_by") @db.Uuid
+  deletedAt        DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  statusHistory CustomerStatusHistory[]
+
+  @@index([ownerUserId, createdAt])
+  @@index([ownerUserId, serviceId, status])
+  @@index([ownerUserId, mobileNormalized])
+  @@map("customers")
+}
+
+model CustomerStatusHistory {
+  id          String         @id @default(uuid()) @db.Uuid
+  customerId  String         @map("customer_id") @db.Uuid
+  customer    Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  oldStatus   CustomerStatus? @map("old_status")
+  newStatus   CustomerStatus @map("new_status")
+  changedById String?        @map("changed_by") @db.Uuid
+  reason      String?
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([customerId])
+  @@map("customer_status_history")
+}
+
+model WalletAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  balancePaise BigInt   @default(0) @map("balance_paise")
+  currency     String   @default("INR") @db.Char(3)
+  version      BigInt   @default(0) // optimistic concurrency aid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  transactions WalletTransaction[]
+
+  @@map("wallet_accounts")
+}
+
+model WalletTransaction {
+  id                String            @id @default(uuid()) @db.Uuid
+  walletAccountId   String            @map("wallet_account_id") @db.Uuid
+  walletAccount     WalletAccount     @relation(fields: [walletAccountId], references: [id], onDelete: Restrict)
+  userId            String            @map("user_id") @db.Uuid
+  type              WalletTxType
+  direction         WalletTxDirection
+  amountPaise       BigInt            @map("amount_paise")
+  balanceAfterPaise BigInt            @map("balance_after_paise")
+  status            WalletTxStatus
+  idempotencyKey    String            @unique @map("idempotency_key") @db.VarChar(160)
+  referenceType     String?           @map("reference_type") @db.VarChar(40)
+  referenceId       String?           @map("reference_id") @db.Uuid
+  description       String?           @db.VarChar(240)
+  createdById       String?           @map("created_by") @db.Uuid
+  metadata          Json?
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  paymentOrder   PaymentOrder?
+  fidGeneration  FidGeneration?
+
+  @@index([userId, createdAt])
+  @@map("wallet_transactions")
+}
+
+model PaymentOrder {
+  id                  String             @id @default(uuid()) @db.Uuid
+  userId              String             @map("user_id") @db.Uuid
+  walletTransactionId String?            @unique @map("wallet_transaction_id") @db.Uuid
+  walletTransaction   WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict)
+  razorpayOrderId     String             @unique @map("razorpay_order_id")
+  amountPaise         BigInt             @map("amount_paise")
+  currency            String             @default("INR") @db.Char(3)
+  status              PaymentOrderStatus @default(CREATED)
+  receiptReference    String             @unique @map("receipt_reference")
+  capturedAt          DateTime?          @map("captured_at") @db.Timestamptz(6)
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events PaymentEvent[]
+
+  @@index([razorpayOrderId])
+  @@map("payment_orders")
+}
+
+model PaymentEvent {
+  id               String        @id @default(uuid()) @db.Uuid
+  providerEventId  String        @unique @map("provider_event_id")
+  paymentOrderId   String?       @map("payment_order_id") @db.Uuid
+  paymentOrder     PaymentOrder? @relation(fields: [paymentOrderId], references: [id], onDelete: SetNull)
+  eventType        String        @map("event_type")
+  signatureVerified Boolean      @map("signature_verified")
+  payloadRedacted  Json?         @map("payload_redacted")
+  processingStatus String        @map("processing_status")
+  processedAt      DateTime?     @map("processed_at") @db.Timestamptz(6)
+  receivedAt       DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@map("payment_events")
+}
+
+model FidGeneration {
+  id                  String             @id @default(uuid()) @db.Uuid
+  userId              String             @map("user_id") @db.Uuid
+  user                User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  customerId          String?            @map("customer_id") @db.Uuid
+  templateVersion     String             @map("template_version")
+  idempotencyKey      String             @unique @map("idempotency_key") @db.VarChar(160)
+  status              FidStatus          @default(QUEUED)
+  chargePaise         BigInt             @default(500) @map("charge_paise")
+  walletTransactionId String?            @unique @map("wallet_transaction_id") @db.Uuid
+  walletTransaction   WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict)
+  fileKey             String?            @map("file_key")
+  failureCode         String?            @map("failure_code")
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt         DateTime?          @map("completed_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@map("fid_generations")
+}
+
+model Announcement {
+  id           String        @id @default(uuid()) @db.Uuid
+  title        String        @db.VarChar(240)
+  body         String?
+  contentType  ContentType   @default(ANNOUNCEMENT) @map("content_type")
+  videoUrl     String?       @map("video_url")
+  thumbnailKey String?       @map("thumbnail_key")
+  status       ContentStatus @default(DRAFT)
+  publishAt    DateTime?     @map("publish_at") @db.Timestamptz(6)
+  expiresAt    DateTime?     @map("expires_at") @db.Timestamptz(6)
+  sortOrder    Int           @default(0) @map("sort_order")
+  createdById  String?       @map("created_by") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, publishAt])
+  @@map("announcements")
+}
+
+model CommitteeMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  committeeType CommitteeType @map("committee_type")
+  name        String        @db.VarChar(160)
+  roleTitle   String?       @map("role_title") @db.VarChar(160)
+  district    String?       @db.VarChar(120)
+  bio         String?
+  publicPhone String?       @map("public_phone") @db.VarChar(16)
+  photoKey    String?       @map("photo_key")
+  sortOrder   Int           @default(0) @map("sort_order")
+  isActive    Boolean       @default(true) @map("is_active")
+  createdById String?       @map("created_by") @db.Uuid
+  archivedAt  DateTime?     @map("archived_at") @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([committeeType, district, sortOrder])
+  @@map("committee_members")
+}
+
+model GovernmentLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(200)
+  url         String
+  description String?
+  imageKey    String?  @map("image_key")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("government_links")
+}
+
+model Document {
+  id               String             @id @default(uuid()) @db.Uuid
+  title            String             @db.VarChar(200)
+  category         String?            @db.VarChar(120)
+  fileKey          String             @map("file_key")
+  originalFilename String             @map("original_filename")
+  mimeType         String             @map("mime_type") @db.VarChar(120)
+  sizeBytes        BigInt             @map("size_bytes")
+  visibility       DocumentVisibility @default(PUBLIC)
+  version          Int                @default(1)
+  isActive         Boolean            @default(true) @map("is_active")
+  uploadedById     String?            @map("uploaded_by") @db.Uuid
+  archivedAt       DateTime?          @map("archived_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("documents")
+}
+
+model InsuranceRequest {
+  id               String            @id @default(uuid()) @db.Uuid
+  submittedByUserId String?          @map("submitted_by_user_id") @db.Uuid
+  customerName     String            @map("customer_name") @db.VarChar(120)
+  mobileNormalized String            @map("mobile_normalized") @db.VarChar(16)
+  vehicleNumber    String?           @map("vehicle_number") @db.VarChar(32)
+  nomineeName      String?           @map("nominee_name") @db.VarChar(120)
+  nomineeRelation  String?           @map("nominee_relation") @db.VarChar(60)
+  policyType       String?           @map("policy_type") @db.VarChar(80)
+  rcFileKey        String?           @map("rc_file_key")
+  identityFileKey  String?           @map("identity_file_key")
+  notes            String?
+  status           ApplicationStatus @default(SUBMITTED)
+  assignedToId     String?           @map("assigned_to") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("insurance_requests")
+}
+
+model MembershipApplication {
+  id              String            @id @default(uuid()) @db.Uuid
+  operatorName    String            @map("operator_name") @db.VarChar(120)
+  centreName      String            @map("centre_name") @db.VarChar(160)
+  district        String            @db.VarChar(120)
+  taluk           String            @db.VarChar(120)
+  phoneNormalized String            @map("phone_normalized") @db.VarChar(16)
+  emailNormalized String?           @map("email_normalized") @db.VarChar(254)
+  status          ApplicationStatus @default(SUBMITTED)
+  reviewedById    String?           @map("reviewed_by") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("membership_applications")
+}
+
+model TrainingRegistration {
+  id              String            @id @default(uuid()) @db.Uuid
+  name            String            @db.VarChar(120)
+  phoneNormalized String            @map("phone_normalized") @db.VarChar(16)
+  topic           String            @db.VarChar(160)
+  mode            String            @db.VarChar(40)
+  notes           String?
+  status          ApplicationStatus @default(REGISTERED)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("training_registrations")
+}
+
+model Grievance {
+  id               String            @id @default(uuid()) @db.Uuid
+  ticketCode       String            @unique @map("ticket_code") @db.VarChar(40)
+  submittedByUserId String?          @map("submitted_by_user_id") @db.Uuid
+  name             String            @db.VarChar(120)
+  phoneNormalized  String            @map("phone_normalized") @db.VarChar(16)
+  category         String            @db.VarChar(80)
+  details          String
+  status           ApplicationStatus @default(OPEN)
+  assignedToId     String?           @map("assigned_to") @db.Uuid
+  resolutionNote   String?           @map("resolution_note")
+  resolvedAt       DateTime?         @map("resolved_at") @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("grievances")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  actor          User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action         String   @db.VarChar(80)
+  entityType     String   @map("entity_type") @db.VarChar(60)
+  entityId       String?  @map("entity_id") @db.VarChar(80)
+  requestId      String?  @map("request_id") @db.VarChar(80)
+  beforeRedacted Json?    @map("before_redacted")
+  afterRedacted  Json?    @map("after_redacted")
+  ipHash         String?  @map("ip_hash") @db.VarChar(80)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       Json
+  updatedById String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}
+
+// Session table is created/managed by connect-pg-simple (see lib/session-store.ts).
+
+enum ManualTopupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// A user-declared UPI/QR payment awaiting admin verification. On approval the wallet is
+// credited through the ledger exactly once (idempotency key manual:<id>). UTR is unique so the
+// same bank reference cannot be submitted twice (by one user or reused by another).
+model ManualTopupRequest {
+  id                  String            @id @default(uuid()) @db.Uuid
+  userId              String            @map("user_id") @db.Uuid
+  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  amountPaise         BigInt            @map("amount_paise")
+  utrNumber           String            @unique @map("utr_number") @db.VarChar(32)
+  note                String?           @db.VarChar(240)
+  screenshotKey       String?           @map("screenshot_key")
+  status              ManualTopupStatus @default(PENDING)
+  reviewedById        String?           @map("reviewed_by") @db.Uuid
+  reviewNote          String?           @map("review_note") @db.VarChar(240)
+  creditedAmountPaise BigInt?           @map("credited_amount_paise")
+  walletTransactionId String?           @unique @map("wallet_transaction_id") @db.Uuid
+  reviewedAt          DateTime?         @map("reviewed_at") @db.Timestamptz(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("manual_topup_requests")
+}
