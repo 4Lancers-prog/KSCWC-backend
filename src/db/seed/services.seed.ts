@@ -1,5 +1,5 @@
 // services.seed.ts — default active service catalogue (Kannada-first).
-import { prisma } from '../../lib/prisma';
+import { Service } from '../models';
 
 const SERVICES = [
   { code: 'AADHAAR_UPDATE', nameKn: 'ಆಧಾರ್ ನವೀಕರಣ', nameEn: 'Aadhaar Update', sortOrder: 1 },
@@ -13,11 +13,11 @@ const SERVICES = [
 
 export async function seedServices(): Promise<void> {
   for (const s of SERVICES) {
-    await prisma.service.upsert({
-      where: { code: s.code },
-      update: { nameKn: s.nameKn, nameEn: s.nameEn, sortOrder: s.sortOrder, isActive: true },
-      create: { ...s, isActive: true },
-    });
+    await Service.updateOne(
+      { code: s.code },
+      { $set: { nameKn: s.nameKn, nameEn: s.nameEn, sortOrder: s.sortOrder, isActive: true } },
+      { upsert: true },
+    );
   }
   // eslint-disable-next-line no-console
   console.log(`✔ seeded ${SERVICES.length} services`);

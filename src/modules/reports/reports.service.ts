@@ -1,9 +1,8 @@
 // reports.service.ts — assemble report payloads + CSV export (same filters, server-side).
-import type { Prisma } from '@prisma/client';
 import { roleHas } from '../../config/permissions';
 import type { Role } from '../../shared/constants/roles';
 import type { ReportFilter } from '../../shared/schemas/report.schema';
-import { buildWhere, listAll } from '../customers/customers.repository';
+import { buildWhere, listAll, type CustomerFilter } from '../customers/customers.repository';
 import { formatPaisePlain } from '../../common/utils/money';
 import { buildCsvDocument } from '../../common/utils/csv';
 import * as repo from './reports.repository';
@@ -13,7 +12,7 @@ interface Requester {
   role: Role;
 }
 
-function scopeWhere(filter: ReportFilter, requester: Requester): Prisma.CustomerWhereInput {
+function scopeWhere(filter: ReportFilter, requester: Requester): CustomerFilter {
   const canAll = roleHas(requester.role, 'reports:read:all');
   return buildWhere({
     ownerUserId: canAll ? filter.ownerUserId : requester.id,

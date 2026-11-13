@@ -1,1 +1,1 @@
-// membership.repository.ts — membership Prisma data access (ownership scoped)
+// membership.repository.ts — membership data access (ownership scoped)

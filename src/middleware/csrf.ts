@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../common/errors/app-error';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../config/constants';
-import { isProd } from '../config/env';
+import { cookieSameSite, cookieSecure } from '../config/env';
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -14,8 +14,8 @@ export function issueCsrfToken(_req: Request, res: Response): string {
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie(CSRF_COOKIE_NAME, token, {
     httpOnly: false, // the SPA must read it to echo in the header
-    sameSite: 'lax',
-    secure: isProd,
+    sameSite: cookieSameSite,
+    secure: cookieSecure,
     path: '/',
   });
   return token;

@@ -49,7 +49,7 @@ router.get(
   requireAuth,
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    res.json(await customers.getCustomer(req.params.id, reqOf(req)));
+    res.json(await customers.getCustomer(req.params.id!, reqOf(req)));
   }),
 );
 
@@ -59,7 +59,7 @@ router.patch(
   validate(idParam, 'params'),
   validate(customerUpdateSchema),
   asyncHandler(async (req, res) => {
-    const updated = await customers.updateCustomer(req.params.id, valid<CustomerUpdateInput>(req), reqOf(req));
+    const updated = await customers.updateCustomer(req.params.id!, valid<CustomerUpdateInput>(req), reqOf(req));
     res.json({ customer: updated });
   }),
 );
@@ -71,7 +71,7 @@ router.post(
   validate(customerStatusSchema),
   asyncHandler(async (req, res) => {
     const { status, reason } = valid<{ status: import('../../shared/constants/customer-status').CustomerStatus; reason?: string }>(req);
-    const updated = await customers.changeStatus(req.params.id, status, reason, reqOf(req));
+    const updated = await customers.changeStatus(req.params.id!, status, reason, reqOf(req));
     res.json({ customer: updated });
   }),
 );

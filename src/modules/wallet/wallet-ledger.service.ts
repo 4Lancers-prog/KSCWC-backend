@@ -1,17 +1,26 @@
 // wallet-ledger.service.ts — the ONLY path that mutates a wallet balance.
-// Invariants enforced here (BPD Appendix B):
-//   • balance can never go negative            → checked + DB CHECK backstop
-//   • POSTED ledger entries are immutable       → we only ever INSERT, never UPDATE a tx
-//   • no double-spend / double-credit           → row lock + unique idempotency_key
-import type { Prisma, WalletTransaction } from '@prisma/client';
+// Invariants:
+//   • balance can never go negative       → a debit is ONE conditional update:
+//                                            { userId, balancePaise ≥ amount } → $inc −amount.
+//                                            If the balance is too low nothing matches, nothing changes.
+//   • ledger entries are immutable        → we only ever INSERT a transaction, never update one
+//   • no double-spend / double-credit     → every post runs in a MongoDB transaction that writes the
+//                                            wallet document; two concurrent posts for the same user
+//                                            collide on that document (WriteConflict) and the loser is
+//                                            retried from scratch by withTransaction(), at which point
+//                                            the idempotency check sees the winner's committed entry.
+//                                            The unique idempotencyKey index is the final backstop.
+import type { ClientSession } from 'mongoose';
 import { AppError } from '../../common/errors/app-error';
+import { WalletAccount, WalletTransaction } from '../../db/models';
+import { toPlain } from '../../lib/db';
 import type { WalletTxType, WalletTxDirection } from '../../shared/constants/wallet';
 
 export interface PostLedgerArgs {
   userId: string;
   type: WalletTxType;
   direction: WalletTxDirection;
-  amountPaise: number; // positive magnitude
+  amountPaise: number; // positive magnitude, integer paise
   idempotencyKey: string;
   referenceType?: string;
   referenceId?: string;
@@ -19,57 +28,72 @@ export interface PostLedgerArgs {
   createdById?: string | null;
 }
 
-/**
- * Post a ledger entry inside an existing interactive transaction.
- * The caller MUST pass a Prisma.TransactionClient (prisma.$transaction(async (tx) => …)).
- * We take a row lock on the user's wallet so concurrent posts for the same user serialize.
- */
-export async function postLedgerEntry(
-  tx: Prisma.TransactionClient,
-  args: PostLedgerArgs,
-): Promise<WalletTransaction> {
-  if (args.amountPaise <= 0) throw AppError.badRequest('Amount must be positive');
+export interface WalletTransactionRecord {
+  id: string;
+  walletAccountId: string;
+  userId: string;
+  type: WalletTxType;
+  direction: WalletTxDirection;
+  amountPaise: number;
+  balanceAfterPaise: number;
+  status: string;
+  idempotencyKey: string;
+  referenceType: string | null;
+  referenceId: string | null;
+  description: string | null;
+  createdById: string | null;
+  createdAt: Date;
+}
 
-  // Lock the wallet row FIRST so all posts for this user serialize. This makes the
-  // idempotency check-then-insert race-free (the second caller sees the committed row).
-  const locked = await tx.$queryRaw<{ id: string; balance_paise: bigint }[]>`
-    SELECT id, balance_paise FROM wallet_accounts WHERE user_id = ${args.userId}::uuid FOR UPDATE
-  `;
-  if (locked.length === 0) throw AppError.notFound('Wallet account not found');
+/**
+ * Post a ledger entry inside an existing transaction (pass the session from withTransaction()).
+ * Idempotent: posting the same idempotencyKey again returns the original entry unchanged.
+ */
+export async function postLedgerEntry(session: ClientSession, args: PostLedgerArgs): Promise<WalletTransactionRecord> {
+  if (!Number.isInteger(args.amountPaise) || args.amountPaise <= 0) {
+    throw AppError.badRequest('Amount must be a positive whole number of paise');
+  }
 
   // Idempotency: if this key already posted, return the existing entry unchanged.
-  const existing = await tx.walletTransaction.findUnique({ where: { idempotencyKey: args.idempotencyKey } });
-  if (existing) return existing;
-  const walletId = locked[0]!.id;
-  const current = BigInt(locked[0]!.balance_paise);
+  const existing = await WalletTransaction.findOne({ idempotencyKey: args.idempotencyKey }).session(session).lean();
+  if (existing) return toPlain<WalletTransactionRecord>(existing);
 
-  const delta = args.direction === 'CREDIT' ? BigInt(args.amountPaise) : -BigInt(args.amountPaise);
-  const nextBalance = current + delta;
-  if (nextBalance < 0n) {
+  const delta = args.direction === 'CREDIT' ? args.amountPaise : -args.amountPaise;
+  const filter =
+    args.direction === 'DEBIT'
+      ? { userId: args.userId, balancePaise: { $gte: args.amountPaise } } // never below zero
+      : { userId: args.userId };
+
+  const wallet = await WalletAccount.findOneAndUpdate(
+    filter,
+    { $inc: { balancePaise: delta, version: 1 } },
+    { new: true, session },
+  ).lean();
+
+  if (!wallet) {
+    const exists = await WalletAccount.exists({ userId: args.userId }).session(session);
+    if (!exists) throw AppError.notFound('Wallet account not found');
     throw new AppError(409, 'INSUFFICIENT_FUNDS', 'Insufficient wallet balance');
   }
 
-  const row = await tx.walletTransaction.create({
-    data: {
-      walletAccountId: walletId,
-      userId: args.userId,
-      type: args.type,
-      direction: args.direction,
-      amountPaise: BigInt(args.amountPaise),
-      balanceAfterPaise: nextBalance,
-      status: 'POSTED',
-      idempotencyKey: args.idempotencyKey,
-      referenceType: args.referenceType ?? null,
-      referenceId: args.referenceId ?? null,
-      description: args.description ?? null,
-      createdById: args.createdById ?? null,
-    },
-  });
-
-  await tx.walletAccount.update({
-    where: { id: walletId },
-    data: { balancePaise: nextBalance, version: { increment: 1 } },
-  });
-
-  return row;
+  const [row] = await WalletTransaction.create(
+    [
+      {
+        walletAccountId: wallet._id,
+        userId: args.userId,
+        type: args.type,
+        direction: args.direction,
+        amountPaise: args.amountPaise,
+        balanceAfterPaise: wallet.balancePaise,
+        status: 'POSTED',
+        idempotencyKey: args.idempotencyKey,
+        referenceType: args.referenceType ?? null,
+        referenceId: args.referenceId ?? null,
+        description: args.description ?? null,
+        createdById: args.createdById ?? null,
+      },
+    ],
+    { session },
+  );
+  return toPlain<WalletTransactionRecord>(row!.toObject());
 }

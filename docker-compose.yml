@@ -1,25 +1,22 @@
-# docker-compose.yml — local PostgreSQL for development + tests.
-# Usage: `docker compose up -d`  then set DATABASE_URL / TEST_DATABASE_URL to the URLs below.
+# docker-compose.yml — local MongoDB (single-node replica set: transactions need one).
+# Usage: `docker compose up -d`, then in .env:
+#   DATABASE_URL=mongodb://127.0.0.1:27017/kscwc?replicaSet=rs0
+#   TEST_DATABASE_URL=mongodb://127.0.0.1:27017/kscwc_test?replicaSet=rs0
 services:
-  db:
-    image: postgres:16
-    container_name: kscwc_db
-    environment:
-      POSTGRES_USER: kscwc
-      POSTGRES_PASSWORD: kscwc_dev
-      POSTGRES_DB: kscwc_dev
+  mongo:
+    image: mongo:8
+    container_name: kscwc_mongo
+    command: ['--replSet', 'rs0', '--bind_ip_all']
     ports:
-      - '5432:5432'
+      - '27017:27017'
     volumes:
-      - kscwc_pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - kscwc_mongo:/data/db
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U kscwc']
+      # initiates the replica set on first start, then reports healthy
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}).ok }"]
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 20
 
 volumes:
-  kscwc_pgdata:
-# DATABASE_URL=postgresql://kscwc:kscwc_dev@localhost:5432/kscwc_dev
-# TEST_DATABASE_URL=postgresql://kscwc:kscwc_dev@localhost:5432/kscwc_test
+  kscwc_mongo:

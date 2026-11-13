@@ -27,7 +27,8 @@ async function transition(
     accountStatus: to,
     approvedById: to === 'ACTIVE' ? actor.id : undefined,
     approvedAt: to === 'ACTIVE' ? new Date() : undefined,
-    rejectedReason: to === 'REJECTED' ? extra.reason ?? null : null,
+    // Kept for REJECTED and SUSPENDED so the user is told why at login; cleared on (re)activation.
+    rejectedReason: to === 'REJECTED' || to === 'SUSPENDED' ? extra.reason ?? null : null,
   });
 
   await writeAudit({

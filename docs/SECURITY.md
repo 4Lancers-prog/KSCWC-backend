@@ -2,7 +2,7 @@
 
 ## AuthN / AuthZ
 - Argon2id password hashing; login failures are uniform (no user enumeration) and rate-limited.
-- Sessions are server-side (Postgres via connect-pg-simple), cookie is **HttpOnly, SameSite=lax,
+- Sessions are server-side (MongoDB via connect-mongo, TTL-expired), cookie is **HttpOnly, SameSite=lax,
   Secure in production**. No tokens in localStorage.
 - Admin/super-admin accounts support **TOTP MFA**; the TOTP secret is **encrypted at rest** (AES-256-GCM, `lib/crypto.ts`).
 - The session id is **regenerated on login** (anti session-fixation); a **password reset invalidates all existing sessions** for that user.
@@ -13,13 +13,11 @@
 
 ## Transport / headers
 - HTTPS in production, `helmet` security headers, CORS allowlist (credentialed) from
-  `CORS_ALLOWLIST`, double-submit CSRF on all mutating routes (the Razorpay webhook is exempt and is
+  `CORS_ALLOWLIST`, double-submit CSRF on all mutating routes (no route is exempt;
   instead verified by HMAC on the raw body).
 
 ## Payments / money
-- Secrets (`RAZORPAY_KEY_SECRET`, webhook secret) stay server-side; only the public key id reaches
-  the browser. Checkout callback and webhook are both signature-verified; the webhook reads the raw
-  body. A payment credits at most once; failed/abandoned/invalid-signature payments never credit.
+- Secrets (`DATABASE_URL`, session/CSRF/MFA keys) stay server-side; nothing secret reaches the browser.
 - Money is integer paise; balances change only through the ledger; POSTED entries are immutable;
   corrections are compensating entries. Admin adjustments require a reason and are audited.
 

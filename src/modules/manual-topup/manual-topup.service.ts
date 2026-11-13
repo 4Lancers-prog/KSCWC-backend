@@ -1,8 +1,8 @@
 // manual-topup.service.ts — UPI/QR top-ups: admin publishes a QR, users declare a UTR,
 // admins verify and credit the wallet through the ledger exactly once.
 import { nanoid } from 'nanoid';
-import type { Prisma } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import { ManualTopupRequest, SystemSetting, User, WalletAccount } from '../../db/models';
+import { connectDb, duplicateKeyFields, withTransaction } from '../../lib/db';
 import { AppError } from '../../common/errors/app-error';
 import { env } from '../../config/env';
 import * as storage from '../../lib/storage';
@@ -32,7 +32,8 @@ function validateImage(file: UploadFile): string {
 interface QrConfig { fileKey: string; mimeType: string; upiId: string; payeeName: string; note?: string }
 
 async function readQr(): Promise<QrConfig | null> {
-  const s = await prisma.systemSetting.findUnique({ where: { key: QR_KEY } });
+  await connectDb();
+  const s = await SystemSetting.findById(QR_KEY).lean();
   return (s?.value as QrConfig | undefined) ?? null;
 }
 
@@ -52,11 +53,7 @@ export async function setPaymentQr(
   }
   if (!fileKey || !mimeType) throw AppError.badRequest('A QR image is required');
   const value: QrConfig = { fileKey, mimeType, upiId: meta.upiId, payeeName: meta.payeeName, note: meta.note };
-  await prisma.systemSetting.upsert({
-    where: { key: QR_KEY },
-    create: { key: QR_KEY, value: value as unknown as Prisma.InputJsonValue, updatedById: actor.id },
-    update: { value: value as unknown as Prisma.InputJsonValue, updatedById: actor.id },
-  });
+  await SystemSetting.updateOne({ _id: QR_KEY }, { $set: { value, updatedById: actor.id } }, { upsert: true });
   await writeAudit({ actorUserId: actor.id, action: 'payment_qr.update', entityType: 'system_setting', entityId: QR_KEY, requestId: actor.requestId, ip: actor.ip, after: { upiId: meta.upiId, payeeName: meta.payeeName } });
   return { upiId: value.upiId, payeeName: value.payeeName, note: value.note ?? null, imageUrl: '/api/v1/payment-qr/image' };
 }
@@ -86,7 +83,8 @@ export async function submitManualTopup(
       [{ field: 'amountPaise', message: 'Amount out of allowed range' }],
     );
   }
-  const wallet = await prisma.walletAccount.findUnique({ where: { userId }, select: { id: true } });
+  await connectDb();
+  const wallet = await WalletAccount.exists({ userId });
   if (!wallet) throw AppError.notFound('Wallet not found');
 
   let screenshotKey: string | null = null;
@@ -97,16 +95,16 @@ export async function submitManualTopup(
   }
 
   try {
-    const row = await prisma.manualTopupRequest.create({
-      data: {
+    const row = (
+      await ManualTopupRequest.create({
         userId,
-        amountPaise: BigInt(input.amountPaise),
+        amountPaise: input.amountPaise,
         utrNumber: input.utrNumber,
         note: input.note ?? null,
         screenshotKey,
-      },
-    });
-    await writeAudit({ actorUserId: userId, action: 'manual_topup.submit', entityType: 'manual_topup', entityId: row.id, requestId: actor.requestId, ip: actor.ip, after: { amountPaise: input.amountPaise, utrNumber: input.utrNumber } });
+      })
+    ).toObject();
+    await writeAudit({ actorUserId: userId, action: 'manual_topup.submit', entityType: 'manual_topup', entityId: row._id, requestId: actor.requestId, ip: actor.ip, after: { amountPaise: input.amountPaise, utrNumber: input.utrNumber } });
     return mapRequest(row);
   } catch (e) {
     if (isUnique(e)) throw new AppError(409, 'DUPLICATE_UTR', 'This UPI reference / UTR has already been submitted.');
@@ -116,13 +114,11 @@ export async function submitManualTopup(
 
 export async function listMyTopups(userId: string, q: { page?: number; limit?: number; status?: string }) {
   const page = resolvePage(q.page, q.limit);
-  const where: Prisma.ManualTopupRequestWhereInput = {
-    userId,
-    ...(q.status ? { status: q.status as 'PENDING' | 'APPROVED' | 'REJECTED' } : {}),
-  };
+  await connectDb();
+  const where = { userId, ...(q.status ? { status: q.status } : {}) };
   const [items, total] = await Promise.all([
-    prisma.manualTopupRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip: skip(page), take: page.limit }),
-    prisma.manualTopupRequest.count({ where }),
+    ManualTopupRequest.find(where).sort({ createdAt: -1 }).skip(skip(page)).limit(page.limit).lean(),
+    ManualTopupRequest.countDocuments(where),
   ]);
   return paginate(items.map(mapRequest), total, page);
 }
@@ -130,50 +126,63 @@ export async function listMyTopups(userId: string, q: { page?: number; limit?: n
 // ── Admin: list + approve + reject ──
 export async function adminListTopups(q: { page?: number; limit?: number; status?: string }) {
   const page = resolvePage(q.page, q.limit);
-  const where: Prisma.ManualTopupRequestWhereInput = q.status
-    ? { status: q.status as 'PENDING' | 'APPROVED' | 'REJECTED' }
-    : {};
+  await connectDb();
+  const where = q.status ? { status: q.status } : {};
   const [items, total] = await Promise.all([
-    prisma.manualTopupRequest.findMany({
-      where,
-      orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
-      skip: skip(page),
-      take: page.limit,
-      include: { user: { select: { fullName: true, phoneNormalized: true, centreName: true } } },
-    }),
-    prisma.manualTopupRequest.count({ where }),
+    // Pending first (oldest first, so the queue is worked in order), then reviewed ones.
+    ManualTopupRequest.aggregate([
+      { $match: where },
+      { $addFields: { _order: { $indexOfArray: [['PENDING', 'APPROVED', 'REJECTED'], '$status'] } } },
+      { $sort: { _order: 1, createdAt: 1 } },
+      { $skip: skip(page) },
+      { $limit: page.limit },
+    ]),
+    ManualTopupRequest.countDocuments(where),
   ]);
-  const mapped = items.map((r) => ({
-    ...mapRequest(r),
-    user: { fullName: r.user.fullName, phone: r.user.phoneNormalized, centreName: r.user.centreName },
-    hasScreenshot: !!r.screenshotKey,
-  }));
+  const users = await User.find({ _id: { $in: items.map((r) => r.userId) } }).select('fullName phoneNormalized centreName').lean();
+  const byId = new Map(users.map((u) => [u._id, u]));
+  const mapped = items.map((r) => {
+    const u = byId.get(r.userId);
+    return {
+      ...mapRequest(r),
+      user: { fullName: u?.fullName ?? '—', phone: u?.phoneNormalized ?? '', centreName: u?.centreName ?? null },
+      hasScreenshot: !!r.screenshotKey,
+    };
+  });
   return paginate(mapped, total, page);
 }
 
 export async function getScreenshot(id: string) {
-  const r = await prisma.manualTopupRequest.findUnique({ where: { id }, select: { screenshotKey: true } });
+  await connectDb();
+  const r = await ManualTopupRequest.findById(id).select('screenshotKey').lean();
   if (!r?.screenshotKey) throw AppError.notFound('No payment screenshot for this request');
   const mimeType = r.screenshotKey.endsWith('.png') ? 'image/png' : 'image/jpeg';
   return { buffer: await storage.getPrivate(r.screenshotKey), mimeType };
 }
 
 export async function approveTopup(id: string, input: { amountPaise?: number; note?: string }, actor: Actor) {
-  const entry = await prisma.$transaction(async (tx) => {
-    // Lock the request row so two admins can't approve the same request concurrently.
-    const locked = await tx.$queryRaw<{ status: string; user_id: string; amount_paise: bigint }[]>`
-      SELECT status, user_id, amount_paise FROM manual_topup_requests WHERE id = ${id}::uuid FOR UPDATE
-    `;
-    if (locked.length === 0) throw AppError.notFound('Request not found');
-    const row = locked[0]!;
-    if (row.status !== 'PENDING') throw new AppError(409, 'ALREADY_REVIEWED', 'This request has already been reviewed.');
-    const creditPaise = input.amountPaise ?? Number(row.amount_paise);
+  const entry = await withTransaction(async (session) => {
+    // Claim the request atomically: only a PENDING request can be approved, so two admins clicking
+    // Approve at the same time can't both credit it (the second sees ALREADY_REVIEWED). Everything
+    // below runs in the same transaction, so any failure rolls the claim back to PENDING.
+    const reviewedAt = new Date();
+    const before = await ManualTopupRequest.findOneAndUpdate(
+      { _id: id, status: 'PENDING' },
+      { $set: { status: 'APPROVED', reviewedById: actor.id, reviewedAt, reviewNote: input.note ?? null } },
+      { session, new: false },
+    ).lean();
+    if (!before) {
+      const exists = await ManualTopupRequest.exists({ _id: id }).session(session);
+      if (!exists) throw AppError.notFound('Request not found');
+      throw new AppError(409, 'ALREADY_REVIEWED', 'This request has already been reviewed.');
+    }
+    const creditPaise = input.amountPaise ?? before.amountPaise;
     if (creditPaise < env.WALLET_TOPUP_MIN_PAISE || creditPaise > env.WALLET_TOPUP_MAX_PAISE) {
       throw AppError.badRequest('Credited amount is outside the allowed range');
     }
     // Credit exactly once — idempotency key manual:<id> makes a double-approve a no-op.
-    const tx1 = await postLedgerEntry(tx, {
-      userId: row.user_id,
+    const tx1 = await postLedgerEntry(session, {
+      userId: before.userId,
       type: 'TOPUP',
       direction: 'CREDIT',
       amountPaise: creditPaise,
@@ -183,17 +192,11 @@ export async function approveTopup(id: string, input: { amountPaise?: number; no
       description: 'Manual UPI top-up (approved)',
       createdById: actor.id,
     });
-    await tx.manualTopupRequest.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        reviewedById: actor.id,
-        reviewedAt: new Date(),
-        reviewNote: input.note ?? null,
-        creditedAmountPaise: BigInt(creditPaise),
-        walletTransactionId: tx1.id,
-      },
-    });
+    await ManualTopupRequest.updateOne(
+      { _id: id },
+      { $set: { creditedAmountPaise: creditPaise, walletTransactionId: tx1.id } },
+      { session },
+    );
     return tx1;
   });
   await writeAudit({ actorUserId: actor.id, action: 'manual_topup.approve', entityType: 'manual_topup', entityId: id, requestId: actor.requestId, ip: actor.ip, after: { walletTransactionId: entry.id, amountPaise: Number(entry.amountPaise) } });
@@ -201,34 +204,37 @@ export async function approveTopup(id: string, input: { amountPaise?: number; no
 }
 
 export async function rejectTopup(id: string, input: { reason: string }, actor: Actor) {
-  const r = await prisma.manualTopupRequest.findUnique({ where: { id }, select: { status: true } });
-  if (!r) throw AppError.notFound('Request not found');
-  if (r.status !== 'PENDING') throw new AppError(409, 'ALREADY_REVIEWED', 'This request has already been reviewed.');
-  await prisma.manualTopupRequest.update({
-    where: { id },
-    data: { status: 'REJECTED', reviewedById: actor.id, reviewedAt: new Date(), reviewNote: input.reason },
-  });
+  await connectDb();
+  // Atomic: only a still-PENDING request can be rejected (never one that was just approved).
+  const r = await ManualTopupRequest.findOneAndUpdate(
+    { _id: id, status: 'PENDING' },
+    { $set: { status: 'REJECTED', reviewedById: actor.id, reviewedAt: new Date(), reviewNote: input.reason } },
+  ).lean();
+  if (!r) {
+    if (!(await ManualTopupRequest.exists({ _id: id }))) throw AppError.notFound('Request not found');
+    throw new AppError(409, 'ALREADY_REVIEWED', 'This request has already been reviewed.');
+  }
   await writeAudit({ actorUserId: actor.id, action: 'manual_topup.reject', entityType: 'manual_topup', entityId: id, requestId: actor.requestId, ip: actor.ip, after: { reason: input.reason } });
   return { id, status: 'REJECTED' as const };
 }
 
 function mapRequest(r: {
-  id: string; amountPaise: bigint; utrNumber: string; note: string | null; status: string;
-  reviewNote: string | null; creditedAmountPaise: bigint | null; createdAt: Date; reviewedAt: Date | null;
+  _id: string; amountPaise: number; utrNumber: string; note?: string | null; status: string;
+  reviewNote?: string | null; creditedAmountPaise?: number | null; createdAt: Date; reviewedAt?: Date | null;
 }) {
   return {
-    id: r.id,
+    id: r._id,
     amountPaise: Number(r.amountPaise),
     utrNumber: r.utrNumber,
-    note: r.note,
+    note: r.note ?? null,
     status: r.status,
-    reviewNote: r.reviewNote,
+    reviewNote: r.reviewNote ?? null,
     creditedAmountPaise: r.creditedAmountPaise != null ? Number(r.creditedAmountPaise) : null,
     createdAt: r.createdAt,
-    reviewedAt: r.reviewedAt,
+    reviewedAt: r.reviewedAt ?? null,
   };
 }
 
 function isUnique(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && 'code' in e && (e as { code?: string }).code === 'P2002';
+  return (duplicateKeyFields(e) ?? []).includes('utrNumber');
 }

@@ -1,63 +1,68 @@
 // users.repository.ts — admin user listing + status updates.
-import { prisma } from '../../lib/prisma';
+import { User } from '../../db/models';
+import { connectDb, containsRegex, toPlain } from '../../lib/db';
 import { skip, type PageParams } from '../../common/utils/pagination';
 import type { AccountStatus } from '../../shared/constants/account-status';
-import type { Prisma } from '@prisma/client';
+import type { Role } from '../../shared/constants/roles';
 
 export interface UserFilter {
   status?: AccountStatus;
   search?: string;
 }
 
-const SAFE_SELECT = {
-  id: true,
-  fullName: true,
-  phoneNormalized: true,
-  emailNormalized: true,
-  role: true,
-  accountStatus: true,
-  centreName: true,
-  cscId: true,
-  rejectedReason: true,
-  approvedAt: true,
-  createdAt: true,
-} satisfies Prisma.UserSelect;
+export interface SafeUser {
+  id: string;
+  fullName: string;
+  phoneNormalized: string;
+  emailNormalized: string | null;
+  role: Role;
+  accountStatus: AccountStatus;
+  centreName: string | null;
+  cscId: string | null;
+  rejectedReason: string | null;
+  approvedAt: Date | null;
+  createdAt: Date;
+}
+
+const SAFE_SELECT = 'fullName phoneNormalized emailNormalized role accountStatus centreName cscId rejectedReason approvedAt createdAt';
+const safe = (u: unknown): SafeUser | null => {
+  if (!u) return null;
+  const p = toPlain<SafeUser>(u);
+  return { ...p, emailNormalized: p.emailNormalized ?? null };
+};
 
 export async function listUsers(filter: UserFilter, page: PageParams) {
-  const where: Prisma.UserWhereInput = {
+  await connectDb();
+  const where: Record<string, unknown> = {
     ...(filter.status ? { accountStatus: filter.status } : {}),
     ...(filter.search
       ? {
-          OR: [
-            { fullName: { contains: filter.search, mode: 'insensitive' } },
-            { phoneNormalized: { contains: filter.search } },
-            { centreName: { contains: filter.search, mode: 'insensitive' } },
+          $or: [
+            { fullName: containsRegex(filter.search) },
+            { phoneNormalized: containsRegex(filter.search) },
+            { centreName: containsRegex(filter.search) },
           ],
         }
       : {}),
   };
   const [items, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      select: SAFE_SELECT,
-      orderBy: { createdAt: 'desc' },
-      skip: skip(page),
-      take: page.limit,
-    }),
-    prisma.user.count({ where }),
+    User.find(where).select(SAFE_SELECT).sort({ createdAt: -1 }).skip(skip(page)).limit(page.limit).lean(),
+    User.countDocuments(where),
   ]);
-  return { items, total };
+  return { items: items.map((u) => safe(u)!), total };
 }
 
-export function findByIdSafe(id: string) {
-  return prisma.user.findUnique({ where: { id }, select: SAFE_SELECT });
+export async function findByIdSafe(id: string) {
+  await connectDb();
+  return safe(await User.findById(id).select(SAFE_SELECT).lean());
 }
 
-export function findRaw(id: string) {
-  return prisma.user.findUnique({ where: { id } });
+export async function findRaw(id: string) {
+  await connectDb();
+  return safe(await User.findById(id).select(SAFE_SELECT + ' approvedById').lean());
 }
 
-export function updateStatus(
+export async function updateStatus(
   id: string,
   data: {
     accountStatus: AccountStatus;
@@ -66,5 +71,7 @@ export function updateStatus(
     rejectedReason?: string | null;
   },
 ) {
-  return prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+  await connectDb();
+  const set = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  return safe(await User.findByIdAndUpdate(id, { $set: set }, { new: true }).select(SAFE_SELECT).lean());
 }

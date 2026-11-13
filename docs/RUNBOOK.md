@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - Node.js 22 LTS, pnpm 9+
-- PostgreSQL 16 (local, or a Supabase project)
+- MongoDB 7+ as a replica set: MongoDB Atlas (free M0 works), or `docker compose up -d`
 - For FID PDFs: `npx playwright install chromium` (once), and a Kannada TTF in `assets/fonts/`.
 
 ## First-time setup (backend)
@@ -12,7 +12,7 @@ cp .env.example .env            # fill DATABASE_URL, DIRECT_URL, TEST_DATABASE_U
                                 # SESSION_SECRET, CSRF_SECRET (32+ chars each)
 pnpm install
 pnpm db:generate
-pnpm db:migrate:dev             # creates tables from prisma/schema.prisma
+pnpm db:seed                    # creates collections + indexes, seeds services/content/admin
 pnpm db:seed                    # services + demo content + prints a dev SUPER_ADMIN password
 pnpm dev                        # http://localhost:4000
 ```
@@ -34,16 +34,13 @@ pnpm dev                        # http://localhost:5173 (proxies /api → :4000)
 
 ## Environment variables (backend)
 Server-only: `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CSRF_SECRET`,
-`RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `STORAGE_DIR`.
-Browser-safe: `RAZORPAY_KEY_ID` (public id only). Operational: `WALLET_TOPUP_MIN/MAX_PAISE`,
+`SUPABASE_SERVICE_ROLE_KEY` (only for Supabase file storage), `STORAGE_DIR`.
+Operational: `WALLET_TOPUP_MIN/MAX_PAISE`,
 `FID_GENERATION_PRICE_PAISE` (500), `MAX_UPLOAD_SIZE_BYTES`, `CORS_ALLOWLIST`.
 
 Env is validated at startup (`config/env.ts`) — the process exits if a required var is missing.
 
 ## Payments in dev
-With a placeholder Razorpay secret or `NODE_ENV=test`, payments run in **mock mode** (no network):
-orders get a fake id and signatures are still real HMACs. For a real browser top-up, set real
-Razorpay **test** keys and configure the webhook to `POST /api/v1/payments/razorpay/webhook`.
 
 ## Jobs
 `node-cron` registers at boot: payment reconciliation every 10 min, housekeeping daily. Disabled

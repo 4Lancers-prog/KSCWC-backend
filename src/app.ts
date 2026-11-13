@@ -1,5 +1,4 @@
 // app.ts — build the Express application: middleware order, routes, 404 + error handler.
-import './lib/bigint-json'; // make BigInt JSON-serializable (money is paise) — must load first
 import './middleware/types'; // load Request augmentation
 import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
@@ -14,7 +13,8 @@ import { globalRateLimit } from './middleware/rate-limit';
 import { errorHandler } from './middleware/error-handler';
 import { notFound } from './middleware/not-found';
 import { asyncHandler } from './middleware/async-handler';
-import { prisma } from './lib/prisma';
+import mongoose from 'mongoose';
+import { connectDb } from './lib/db';
 
 import authRoutes from './modules/auth/auth.routes';
 import usersRoutes from './modules/users/users.routes';
@@ -24,14 +24,14 @@ import customersRoutes from './modules/customers/customers.routes';
 import reportsRoutes from './modules/reports/reports.routes';
 import walletRoutes from './modules/wallet/wallet.routes';
 import manualTopupRoutes from './modules/manual-topup/manual-topup.routes';
-import paymentsRoutes from './modules/payments/payments.routes';
 import fidRoutes from './modules/fid/fid.routes';
 import announcementsRoutes from './modules/announcements/announcements.routes';
 import committeesRoutes from './modules/committees/committees.routes';
 import governmentLinksRoutes from './modules/government-links/government-links.routes';
 import documentsRoutes from './modules/documents/documents.routes';
 import applicationsRoutes from './modules/applications/applications.routes';
-import razorpayWebhookRoutes from './modules/payments/razorpay-webhook.routes';
+import meRoutes from './modules/me/me.routes';
+import adminOverviewRoutes from './modules/admin-overview/admin-overview.routes';
 
 export function buildApp(): Express {
   const app = express();
@@ -44,9 +44,6 @@ export function buildApp(): Express {
   app.use(corsMiddleware);
   app.use(cookieParser());
 
-  // The Razorpay webhook needs the RAW body for HMAC verification, so it is mounted with
-  // express.raw BEFORE the json parser and before session/CSRF (Razorpay can't send a CSRF token).
-  app.use('/api/v1/payments/razorpay/webhook', express.raw({ type: '*/*' }), razorpayWebhookRoutes);
 
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
@@ -61,7 +58,8 @@ export function buildApp(): Express {
   app.get(
     '/health/ready',
     asyncHandler(async (_req, res) => {
-      await prisma.$queryRaw`SELECT 1`;
+      await connectDb();
+      await mongoose.connection.db!.admin().ping();
       res.json({ status: 'ready' });
     }),
   );
@@ -77,7 +75,6 @@ export function buildApp(): Express {
   app.use('/api/v1', reportsRoutes);
   app.use('/api/v1', walletRoutes);
   app.use('/api/v1', manualTopupRoutes);
-  app.use('/api/v1', paymentsRoutes);
   app.use('/api/v1', fidRoutes);
   app.use('/api/v1', announcementsRoutes);
   app.use('/api/v1', committeesRoutes);
@@ -85,6 +82,8 @@ export function buildApp(): Express {
   app.use('/api/v1', documentsRoutes);
   app.use('/api/v1', applicationsRoutes);
   app.use('/api/v1', auditRoutes);
+  app.use('/api/v1', meRoutes);
+  app.use('/api/v1', adminOverviewRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

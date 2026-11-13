@@ -1,7 +1,6 @@
 // committees.service.ts — CRUD, reorder, archive (soft delete) + audit.
 import { z } from 'zod';
 import { AppError } from '../../common/errors/app-error';
-import { prisma } from '../../lib/prisma';
 import { committeeCreateSchema, committeeUpdateSchema, committeeReorderSchema } from '../../shared/schemas/content.schema';
 import { writeAudit } from '../audit/audit.service';
 import * as repo from './committees.repository';
@@ -54,9 +53,7 @@ export async function archiveMember(id: string, actor: Actor) {
 }
 
 export async function reorder(input: Reorder, actor: Actor) {
-  await prisma.$transaction(
-    input.order.map((o) => prisma.committeeMember.update({ where: { id: o.id }, data: { sortOrder: o.sortOrder } })),
-  );
+  await repo.reorder(input.order);
   await writeAudit({ actorUserId: actor.id, action: 'committee.reorder', entityType: 'committee_member', requestId: actor.requestId, ip: actor.ip });
   return { ok: true };
 }

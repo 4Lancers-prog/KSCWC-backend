@@ -59,7 +59,7 @@ describe('ownership / IDOR (AC-03)', () => {
     const read = await b.agent.get(`/api/v1/customers/${id}`);
     expect(read.status).toBe(404); // existence not revealed
 
-    const patch = await b.agent.patch(`/api/v1/customers/${id}`).set('x-csrf-token', b.csrf).send({ fullName: 'HACKED' });
+    const patch = await b.agent.patch(`/api/v1/customers/${id}`).set('x-csrf-token', b.agent.csrf).send({ fullName: 'HACKED' });
     expect(patch.status).toBe(404);
 
     const status = await post(b.agent, `/api/v1/customers/${id}/status`, { status: 'COMPLETED' });

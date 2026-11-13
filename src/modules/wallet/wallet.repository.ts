@@ -1,61 +1,42 @@
-// wallet.repository.ts — wallet + transaction + payment-order reads.
-import type { Prisma } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+// wallet.repository.ts — wallet + transaction reads.
+import { User, WalletAccount, WalletTransaction } from '../../db/models';
+import { connectDb, containsRegex, toPlain } from '../../lib/db';
 import { skip, type PageParams } from '../../common/utils/pagination';
+import type { WalletTxType } from '../../shared/constants/wallet';
 
-export function getWalletByUser(userId: string) {
-  return prisma.walletAccount.findUnique({ where: { userId } });
+export async function getWalletByUser(userId: string) {
+  await connectDb();
+  return toPlain<{ id: string; userId: string; balancePaise: number; currency: string; updatedAt: Date } | null>(
+    await WalletAccount.findOne({ userId }).lean(),
+  );
 }
 
-export async function listTransactions(
-  userId: string,
-  page: PageParams,
-  filter: { type?: Prisma.WalletTransactionWhereInput['type'] } = {},
-) {
-  const where: Prisma.WalletTransactionWhereInput = {
-    userId,
-    ...(filter.type ? { type: filter.type } : {}),
-  };
+export async function listTransactions(userId: string, page: PageParams, filter: { type?: WalletTxType } = {}) {
+  await connectDb();
+  const where = { userId, ...(filter.type ? { type: filter.type } : {}) };
   const [items, total] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip: skip(page),
-      take: page.limit,
-    }),
-    prisma.walletTransaction.count({ where }),
+    WalletTransaction.find(where).sort({ createdAt: -1 }).skip(skip(page)).limit(page.limit).lean(),
+    WalletTransaction.countDocuments(where),
   ]);
-  return { items, total };
-}
-
-export function findPaymentOrderByRazorpayId(razorpayOrderId: string) {
-  return prisma.paymentOrder.findUnique({ where: { razorpayOrderId } });
-}
-
-export function findPaymentOrderById(id: string) {
-  return prisma.paymentOrder.findUnique({ where: { id } });
+  return { items: toPlain<Record<string, unknown>[]>(items), total };
 }
 
 export async function adminListWallets(page: PageParams, search?: string) {
-  const where: Prisma.WalletAccountWhereInput = search
-    ? {
-        user: {
-          OR: [
-            { fullName: { contains: search, mode: 'insensitive' } },
-            { phoneNormalized: { contains: search } },
-          ],
-        },
-      }
-    : {};
-  const [items, total] = await Promise.all([
-    prisma.walletAccount.findMany({
-      where,
-      include: { user: { select: { id: true, fullName: true, phoneNormalized: true, accountStatus: true } } },
-      orderBy: { updatedAt: 'desc' },
-      skip: skip(page),
-      take: page.limit,
-    }),
-    prisma.walletAccount.count({ where }),
+  await connectDb();
+  let where: Record<string, unknown> = {};
+  if (search) {
+    const ids = await User.find({ $or: [{ fullName: containsRegex(search) }, { phoneNormalized: containsRegex(search) }] })
+      .distinct('_id');
+    where = { userId: { $in: ids } };
+  }
+  const [wallets, total] = await Promise.all([
+    WalletAccount.find(where).sort({ updatedAt: -1 }).skip(skip(page)).limit(page.limit).lean(),
+    WalletAccount.countDocuments(where),
   ]);
+  const users = await User.find({ _id: { $in: wallets.map((w) => w.userId) } })
+    .select('fullName phoneNormalized accountStatus')
+    .lean();
+  const byId = new Map(users.map((u) => [u._id, toPlain(u)]));
+  const items = wallets.map((w) => ({ ...toPlain<Record<string, unknown>>(w), user: byId.get(w.userId) ?? null }));
   return { items, total };
 }

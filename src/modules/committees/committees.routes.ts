@@ -29,9 +29,9 @@ router.post('/admin/committees/reorder', requirePermission('committees:manage'),
   asyncHandler(async (req, res) => res.json(await svc.reorder(valid(req), actorOf(req)))));
 
 router.patch('/admin/committees/:id', requirePermission('committees:manage'), validate(idParam, 'params'), validate(committeeUpdateSchema),
-  asyncHandler(async (req, res) => res.json({ member: await svc.updateMember(req.params.id, valid(req), actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ member: await svc.updateMember(req.params.id!, valid(req), actorOf(req)) })));
 
 router.post('/admin/committees/:id/archive', requirePermission('committees:manage'), validate(idParam, 'params'),
-  asyncHandler(async (req, res) => res.json({ member: await svc.archiveMember(req.params.id, actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ member: await svc.archiveMember(req.params.id!, actorOf(req)) })));
 
 export default router;

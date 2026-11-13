@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import type { Express } from 'express';
 import { buildApp } from '../../app';
-import { prisma } from '../../lib/prisma';
+import { AuditLog, User } from '../../db/models';
 import { resetDb, makeAgent, post, createUser } from '../helpers/test-db';
 
 let app: Express;
@@ -28,11 +28,11 @@ describe('registration', () => {
     expect(res.status).toBe(201);
     expect(res.body.user.accountStatus).toBe('PENDING_APPROVAL');
 
-    const inDb = await prisma.user.findUnique({ where: { phoneNormalized: '9876500001' } });
+    const inDb = await User.findOne({ phoneNormalized: '9876500001' }).select('+passwordHash').lean();
     expect(inDb).not.toBeNull();
     expect(inDb!.passwordHash).not.toContain('supersecret'); // hashed, not plaintext
 
-    const audit = await prisma.auditLog.findFirst({ where: { action: 'user.register' } });
+    const audit = await AuditLog.findOne({ action: 'user.register' }).lean();
     expect(audit).not.toBeNull();
   });
 

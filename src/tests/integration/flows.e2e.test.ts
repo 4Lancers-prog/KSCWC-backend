@@ -1,20 +1,16 @@
 // flows.e2e.test.ts — end-to-end journeys over HTTP (AC spanning signup→report→wallet→content).
-import crypto from 'node:crypto';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import type { Express } from 'express';
 import { buildApp } from '../../app';
-import { prisma } from '../../lib/prisma';
 import { resetDb, makeAgent, post, createUser, createService, loginAs } from '../helpers/test-db';
 
-const KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? 'placeholder';
 let app: Express;
 beforeAll(() => { app = buildApp(); });
 beforeEach(async () => { await resetDb(); });
 
 describe('operator journey: signup → approval → login → customer → report', () => {
   it('runs end to end', async () => {
-    await createService({ code: 'PAN_CARD' });
-    const svc = await prisma.service.findFirstOrThrow();
+    const svc = await createService({ code: 'PAN_CARD' });
 
     // signup
     const guest = await makeAgent(app);
@@ -41,18 +37,30 @@ describe('operator journey: signup → approval → login → customer → repor
   });
 });
 
-describe('wallet journey: top-up → verify → balance', () => {
-  it('credits the wallet after a verified payment', async () => {
+describe('wallet journey: UPI payment → UTR → admin approval → balance → FID charge', () => {
+  it('credits only after admin approval, exactly once, and the UTR cannot be reused', async () => {
     const op = await loginAs(app, { phone: '9811100010' });
-    const topup = await post(op.agent, '/api/v1/wallet/topups', { amountPaise: 20000 });
-    const orderId = topup.body.razorpayOrderId as string;
-    const sig = crypto.createHmac('sha256', KEY_SECRET).update(`${orderId}|pay_e2e`).digest('hex');
-    const verify = await post(op.agent, '/api/v1/payments/verify', {
-      razorpayOrderId: orderId, razorpayPaymentId: 'pay_e2e', razorpaySignature: sig,
-    });
-    expect(verify.status).toBe(200);
-    const wallet = await op.agent.get('/api/v1/wallet');
-    expect(wallet.body.balancePaise).toBe(20000);
+    const admin = await loginAs(app, { phone: '9000000097', role: 'ADMIN' });
+
+    const sub = await post(op.agent, '/api/v1/wallet/manual-topups', { amountPaise: 20000, utrNumber: '412345678901' });
+    expect(sub.body).toMatchObject({ status: 'PENDING' });
+    expect(sub.status).toBe(201);
+    expect((await op.agent.get('/api/v1/wallet')).body.balancePaise).toBe(0); // nothing until approved
+
+    // same UTR again → refused
+    const dup = await post(op.agent, '/api/v1/wallet/manual-topups', { amountPaise: 20000, utrNumber: '412345678901' });
+    expect(dup.status).toBe(409);
+
+    // two admins approve at the same moment → credited once
+    const [a1, a2] = await Promise.all([
+      post(admin.agent, `/api/v1/admin/manual-topups/${sub.body.id}/approve`, {}),
+      post(admin.agent, `/api/v1/admin/manual-topups/${sub.body.id}/approve`, {}),
+    ]);
+    expect([a1.status, a2.status].sort()).toEqual([200, 409]);
+    expect((await op.agent.get('/api/v1/wallet')).body.balancePaise).toBe(20000);
+
+    // rejecting after approval is refused
+    expect((await post(admin.agent, `/api/v1/admin/manual-topups/${sub.body.id}/reject`, { reason: 'late' })).status).toBe(409);
   });
 });
 

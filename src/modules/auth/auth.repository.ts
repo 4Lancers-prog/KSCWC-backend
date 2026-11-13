@@ -1,51 +1,71 @@
 // auth.repository.ts — data access for auth (users, wallet bootstrap, password resets, MFA).
-import { prisma } from '../../lib/prisma';
-import type { Prisma, User } from '@prisma/client';
+import { User, WalletAccount, PasswordResetToken, type UserRecord } from '../../db/models';
+import { connectDb, toPlain, withTransaction } from '../../lib/db';
+import { deleteSessionsForUser } from '../../lib/session-store';
 
-export function findByPhone(phoneNormalized: string): Promise<User | null> {
-  return prisma.user.findUnique({ where: { phoneNormalized } });
+// Auth needs the secret fields that are hidden by default.
+const SECRET = '+passwordHash +mfaSecret';
+
+function normalize(u: unknown): UserRecord | null {
+  if (!u) return null;
+  const p = toPlain<UserRecord>(u);
+  return { ...p, emailNormalized: p.emailNormalized ?? null };
 }
 
-export function findByEmail(emailNormalized: string): Promise<User | null> {
-  return prisma.user.findUnique({ where: { emailNormalized } });
+export async function findByPhone(phoneNormalized: string): Promise<UserRecord | null> {
+  await connectDb();
+  return normalize(await User.findOne({ phoneNormalized }).select(SECRET).lean());
 }
 
-export function findById(id: string): Promise<User | null> {
-  return prisma.user.findUnique({ where: { id } });
+export async function findByEmail(emailNormalized: string): Promise<UserRecord | null> {
+  await connectDb();
+  return normalize(await User.findOne({ emailNormalized }).select(SECRET).lean());
+}
+
+export async function findById(id: string): Promise<UserRecord | null> {
+  await connectDb();
+  return normalize(await User.findById(id).select(SECRET).lean());
 }
 
 /** Create the user and their (zero-balance) wallet account atomically. */
-export async function createUserWithWallet(data: Prisma.UserCreateInput): Promise<User> {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({ data });
-    await tx.walletAccount.create({ data: { userId: user.id } });
-    return user;
+export async function createUserWithWallet(data: Partial<UserRecord> & { fullName: string; phoneNormalized: string; passwordHash: string }): Promise<UserRecord> {
+  return withTransaction(async (session) => {
+    const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null || false));
+    const [user] = await User.create([clean], { session });
+    await WalletAccount.create([{ userId: user!._id }], { session });
+    return normalize(user!.toObject())!;
   });
 }
 
-export function updatePasswordHash(userId: string, passwordHash: string) {
-  return prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+export async function updatePasswordHash(userId: string, passwordHash: string) {
+  await connectDb();
+  return User.updateOne({ _id: userId }, { $set: { passwordHash } });
 }
 
-export function setMfa(userId: string, mfaSecret: string | null, mfaEnabled: boolean) {
-  return prisma.user.update({ where: { id: userId }, data: { mfaSecret, mfaEnabled } });
+export async function setMfa(userId: string, mfaSecret: string | null, mfaEnabled: boolean) {
+  await connectDb();
+  return User.updateOne({ _id: userId }, { $set: { mfaSecret, mfaEnabled } });
 }
 
 // ── password reset tokens ──
-export function createPasswordReset(userId: string, tokenHash: string, expiresAt: Date) {
-  return prisma.passwordResetToken.create({ data: { userId, tokenHash, expiresAt } });
+export async function createPasswordReset(userId: string, tokenHash: string, expiresAt: Date) {
+  await connectDb();
+  return toPlain((await PasswordResetToken.create({ userId, tokenHash, expiresAt })).toObject());
 }
 
-export function findActiveReset(tokenHash: string) {
-  return prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+export async function findActiveReset(tokenHash: string) {
+  await connectDb();
+  return toPlain<{ id: string; userId: string; expiresAt: Date; usedAt: Date | null } | null>(
+    await PasswordResetToken.findOne({ tokenHash }).lean(),
+  );
 }
 
-export function markResetUsed(id: string) {
-  return prisma.passwordResetToken.update({ where: { id }, data: { usedAt: new Date() } });
+export async function markResetUsed(id: string) {
+  await connectDb();
+  return PasswordResetToken.updateOne({ _id: id }, { $set: { usedAt: new Date() } });
 }
 
-/** Delete all connect-pg-simple sessions belonging to a user (e.g. after a password reset). */
+/** Delete every stored session belonging to a user (e.g. after a password reset). */
 export function deleteUserSessions(userId: string) {
-  // The session store table is managed by connect-pg-simple; sess->>'userId' holds our id.
-  return prisma.$executeRaw`DELETE FROM "session" WHERE sess->>'userId' = ${userId}`;
+  return deleteSessionsForUser(userId);
 }

@@ -1,6 +1,7 @@
 // wallet.service.ts — wallet reads + admin ledger adjustments (via the ledger service only).
 import { nanoid } from 'nanoid';
-import { prisma } from '../../lib/prisma';
+import { User } from '../../db/models';
+import { connectDb, withTransaction } from '../../lib/db';
 import { AppError } from '../../common/errors/app-error';
 import { resolvePage, paginate } from '../../common/utils/pagination';
 import type { WalletTxType } from '../../shared/constants/wallet';
@@ -20,7 +21,7 @@ export async function listTransactions(
 ) {
   const page = resolvePage(q.page, q.limit);
   const { items, total } = await repo.listTransactions(userId, page, { type: q.type });
-  const mapped = items.map((t) => ({
+  const mapped = (items as Array<Record<string, any>>).map((t) => ({
     id: t.id,
     type: t.type,
     direction: t.direction,
@@ -39,12 +40,13 @@ export async function adminAdjust(
   input: { amountPaise: number; direction: 'CREDIT' | 'DEBIT'; reason: string },
   actor: { id: string; requestId?: string; ip?: string | null },
 ) {
-  const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+  await connectDb();
+  const target = await User.exists({ _id: targetUserId });
   if (!target) throw AppError.notFound('User not found');
 
   const type: WalletTxType = input.direction === 'CREDIT' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT';
-  const txn = await prisma.$transaction((tx) =>
-    postLedgerEntry(tx, {
+  const txn = await withTransaction((session) =>
+    postLedgerEntry(session, {
       userId: targetUserId,
       type,
       direction: input.direction,

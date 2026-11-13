@@ -1,1 +1,1 @@
-// training.repository.ts — training Prisma data access (ownership scoped)
+// training.repository.ts — training data access (ownership scoped)

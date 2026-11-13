@@ -1,21 +1,22 @@
 // wallet.concurrency.test.ts — ledger safety: no negative balance under concurrency, idempotency (AC-08).
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { prisma } from '../../lib/prisma';
+import { WalletAccount, WalletTransaction } from '../../db/models';
+import { withTransaction } from '../../lib/db';
 import { resetDb, createUser } from '../helpers/test-db';
 import { postLedgerEntry } from '../../modules/wallet/wallet-ledger.service';
 
 async function credit(userId: string, amountPaise: number, key: string) {
-  return prisma.$transaction((tx) =>
+  return withTransaction((tx) =>
     postLedgerEntry(tx, { userId, type: 'TOPUP', direction: 'CREDIT', amountPaise, idempotencyKey: key }),
   );
 }
 async function debit(userId: string, amountPaise: number, key: string) {
-  return prisma.$transaction((tx) =>
+  return withTransaction((tx) =>
     postLedgerEntry(tx, { userId, type: 'CARD_CHARGE', direction: 'DEBIT', amountPaise, idempotencyKey: key }),
   );
 }
 const balanceOf = async (userId: string) =>
-  Number((await prisma.walletAccount.findUniqueOrThrow({ where: { userId } })).balancePaise);
+  (await WalletAccount.findOne({ userId }).orFail().lean()).balancePaise;
 
 beforeAll(() => {});
 beforeEach(async () => {
@@ -36,7 +37,7 @@ describe('wallet ledger', () => {
     await credit(u.id, 10000, 'topup:same');
     await credit(u.id, 10000, 'topup:same'); // replay
     expect(await balanceOf(u.id)).toBe(10000);
-    expect(await prisma.walletTransaction.count({ where: { userId: u.id } })).toBe(1);
+    expect(await WalletTransaction.countDocuments({ userId: u.id })).toBe(1);
   });
 
   it('rejects a debit that would go negative', async () => {
@@ -61,7 +62,16 @@ describe('wallet ledger', () => {
     expect(failed).toBe(3);
     expect(await balanceOf(u.id)).toBe(1000);
     // balance never recorded below zero on any posted row
-    const min = await prisma.walletTransaction.aggregate({ where: { userId: u.id }, _min: { balanceAfterPaise: true } });
-    expect(Number(min._min.balanceAfterPaise)).toBeGreaterThanOrEqual(0);
+    const min = await WalletTransaction.findOne({ userId: u.id }).sort({ balanceAfterPaise: 1 }).lean();
+    expect(min!.balanceAfterPaise).toBeGreaterThanOrEqual(0);
+  });
+
+  it('concurrent replays of the same key post once (double click)', async () => {
+    const u = await createUser({ phone: '9700000005' });
+    await credit(u.id, 10000, 'seed');
+    const results = await Promise.allSettled(Array.from({ length: 5 }, () => debit(u.id, 500, 'same-click')));
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    expect(await balanceOf(u.id)).toBe(9500);
+    expect(await WalletTransaction.countDocuments({ userId: u.id, type: 'CARD_CHARGE' })).toBe(1);
   });
 });

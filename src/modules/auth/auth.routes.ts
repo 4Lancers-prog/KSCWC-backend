@@ -15,7 +15,7 @@ import {
   type LoginInput,
 } from '../../shared/schemas/auth.schema';
 import { isProd } from '../../config/env';
-import { prisma } from '../../lib/prisma';
+import * as authRepo from './auth.repository';
 import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
@@ -43,8 +43,8 @@ router.post(
   loginRateLimit,
   validate(loginSchema),
   asyncHandler(async (req, res) => {
-    const user = await auth.login(valid<LoginInput>(req), req.session, ctxOf(req));
-    res.json({ user, mfaSetupRequired: !!req.session.mfaSetupRequired });
+    const { user, mfaSetupRequired } = await auth.login(valid<LoginInput>(req), req, ctxOf(req));
+    res.json({ user, mfaSetupRequired });
   }),
 );
 
@@ -61,7 +61,7 @@ router.get(
   '/auth/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const u = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    const u = await authRepo.findById(req.user!.id);
     if (!u) throw AppError.unauthorized();
     res.json({ user: auth.toSessionUser(u), mfaSetupRequired: !!req.session.mfaSetupRequired });
   }),
@@ -93,7 +93,7 @@ router.post(
   '/auth/mfa/setup',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const u = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    const u = await authRepo.findById(req.user!.id);
     if (!u) throw AppError.unauthorized();
     const { secret, otpauthUrl } = await auth.beginMfaEnrolment(u);
     res.json({ secret, otpauthUrl });
@@ -105,7 +105,7 @@ router.post(
   requireAuth,
   validate(enableMfaSchema),
   asyncHandler(async (req, res) => {
-    const u = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    const u = await authRepo.findById(req.user!.id);
     if (!u) throw AppError.unauthorized();
     await auth.confirmMfa(u, valid<{ token: string }>(req).token, ctxOf(req));
     req.session.mfaSetupRequired = false; // enrolment complete — lift the restriction

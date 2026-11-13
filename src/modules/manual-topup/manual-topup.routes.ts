@@ -88,7 +88,7 @@ router.get(
   requirePermission('wallet:read:all'),
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    const { buffer, mimeType } = await svc.getScreenshot(req.params.id);
+    const { buffer, mimeType } = await svc.getScreenshot(req.params.id!);
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', 'inline');
     res.send(buffer);
@@ -101,7 +101,7 @@ router.post(
   validate(idParam, 'params'),
   validate(manualTopupApproveSchema),
   asyncHandler(async (req, res) => {
-    res.json(await svc.approveTopup(req.params.id, valid<ManualTopupApproveInput>(req), actorOf(req)));
+    res.json(await svc.approveTopup(req.params.id!, valid<ManualTopupApproveInput>(req), actorOf(req)));
   }),
 );
 
@@ -111,7 +111,7 @@ router.post(
   validate(idParam, 'params'),
   validate(manualTopupRejectSchema),
   asyncHandler(async (req, res) => {
-    res.json(await svc.rejectTopup(req.params.id, valid<ManualTopupRejectInput>(req), actorOf(req)));
+    res.json(await svc.rejectTopup(req.params.id!, valid<ManualTopupRejectInput>(req), actorOf(req)));
   }),
 );
 

@@ -16,8 +16,8 @@ router.get('/admin/government-links', requirePermission('links:manage'), asyncHa
 router.post('/admin/government-links', requirePermission('links:manage'), validate(govLinkCreateSchema),
   asyncHandler(async (req, res) => res.status(201).json({ link: await svc.createLink(valid(req), actorOf(req)) })));
 router.patch('/admin/government-links/:id', requirePermission('links:manage'), validate(idParam, 'params'), validate(govLinkUpdateSchema),
-  asyncHandler(async (req, res) => res.json({ link: await svc.updateLink(req.params.id, valid(req), actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ link: await svc.updateLink(req.params.id!, valid(req), actorOf(req)) })));
 router.post('/admin/government-links/:id/deactivate', requirePermission('links:manage'), validate(idParam, 'params'),
-  asyncHandler(async (req, res) => res.json({ link: await svc.deactivateLink(req.params.id, actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ link: await svc.deactivateLink(req.params.id!, actorOf(req)) })));
 
 export default router;

@@ -1,5 +1,6 @@
 // customers.service.ts — customer business logic with ownership scoping, status history, audit.
-import { prisma } from '../../lib/prisma';
+import { Service } from '../../db/models';
+import { connectDb, withTransaction } from '../../lib/db';
 import { AppError } from '../../common/errors/app-error';
 import { normalizePhone, cleanText } from '../../common/utils/normalize';
 import { resolvePage, paginate, type PageParams } from '../../common/utils/pagination';
@@ -25,7 +26,8 @@ export interface Requester {
 const canReadAll = (r: Requester) => roleHas(r.role, 'customers:read:all');
 
 export async function createCustomer(input: CustomerCreateInput, actor: Requester) {
-  const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
+  await connectDb();
+  const service = await Service.findById(input.serviceId).lean();
   if (!service || !service.isActive) {
     throw AppError.badRequest('Selected service is not available', [
       { field: 'serviceId', message: 'Choose an active service' },
@@ -51,11 +53,11 @@ export async function createCustomer(input: CustomerCreateInput, actor: Requeste
     }
   }
 
-  const customer = await prisma.$transaction(async (tx) => {
+  const customer = await withTransaction(async (tx) => {
     const created = await repo.create(
       {
-        owner: { connect: { id: actor.id } },
-        service: { connect: { id: input.serviceId } },
+        ownerUserId: actor.id,
+        serviceId: input.serviceId,
         fullName: cleanText(input.fullName),
         mobileNormalized: mobile,
         referenceCode: input.referenceCode ? cleanText(input.referenceCode) : null,
@@ -160,12 +162,8 @@ export async function changeStatus(
     throw AppError.badRequest(`Cannot change status from ${existing.status} to ${next}`);
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const u = await tx.customer.update({
-      where: { id },
-      data: { status: next, updatedById: actor.id },
-      include: { service: { select: { id: true, code: true, nameKn: true, nameEn: true } } },
-    });
+  const updated = await withTransaction(async (tx) => {
+    const u = await repo.update(id, { status: next, updatedById: actor.id }, tx);
     await repo.addStatusHistory(tx, {
       customerId: id,
       oldStatus: existing.status,

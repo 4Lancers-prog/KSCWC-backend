@@ -1,3 +1,8 @@
+> **Note (Nov 2026):** this audit predates the move to MongoDB and the removal of Razorpay. Ledger
+> safety now uses atomic conditional updates inside MongoDB transactions plus unique indexes
+> (see `docs/DATABASE.md`); there is no payment webhook. Items below about Prisma/PostgreSQL row locks,
+> the DB CHECK constraint and Razorpay secrets no longer apply.
+
 # KSCWC Portal — Complete Security Audit
 
 **Date:** 2026-11-07

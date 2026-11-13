@@ -1,1 +1,0 @@
--- seed.sql — Non-sensitive demo content seed

@@ -2,50 +2,51 @@
 import type { Express } from 'express';
 import request from 'supertest';
 import argon2 from 'argon2';
-import { prisma } from '../../lib/prisma';
+import mongoose from 'mongoose';
+import { ALL_MODELS, Service, User, WalletAccount } from '../../db/models';
+import { connectDb, toPlain } from '../../lib/db';
+import { SESSION_COLLECTION } from '../../lib/session-store';
 import { CSRF_HEADER_NAME } from '../../config/constants';
 import type { Role } from '../../shared/constants/roles';
 import type { AccountStatus } from '../../shared/constants/account-status';
 
-/** Truncate all application tables between tests (session table left to connect-pg-simple). */
+let indexesReady = false;
+
+/** Empty every collection between tests (indexes are kept, so unique rules still apply). */
 export async function resetDb(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE
-      audit_logs, password_reset_tokens, customer_status_history, customers,
-      wallet_transactions, wallet_accounts, fid_generations, payment_events, payment_orders,
-      announcements, committee_members, government_links, documents,
-      insurance_requests, membership_applications, training_registrations, grievances,
-      system_settings, services, users
-    RESTART IDENTITY CASCADE
-  `);
+  await connectDb();
+  if (!indexesReady) {
+    for (const m of ALL_MODELS) {
+      await m.createCollection().catch(() => undefined);
+      await m.syncIndexes();
+    }
+    indexesReady = true;
+  }
+  await Promise.all(ALL_MODELS.map((m) => m.deleteMany({})));
+  await mongoose.connection.collection(SESSION_COLLECTION).deleteMany({});
 }
 
-export interface Agent {
-  agent: request.Agent;
-  csrf: string;
-}
+type RealAgent = ReturnType<typeof request.agent>;
+/** The real supertest agent, augmented with a self `agent` ref and the CSRF token,
+ *  so tests can call `.get/.post/.patch` directly or pass it to the `post` helper. */
+export type Agent = RealAgent & { agent: RealAgent; csrf: string };
 
 /** A supertest agent that persists cookies, primed with a CSRF token. */
 export async function makeAgent(app: Express): Promise<Agent> {
   const agent = request.agent(app);
   const res = await agent.get('/api/v1/auth/csrf');
-  return { agent, csrf: res.body.csrfToken as string };
+  return Object.assign(agent, { agent, csrf: res.body.csrfToken as string });
 }
 
 /** POST helper that includes the CSRF header. */
-export function post(a: Agent, path: string, body?: unknown) {
+export function post(a: Agent, path: string, body?: object | string) {
   return a.agent.post(path).set(CSRF_HEADER_NAME, a.csrf).send(body);
 }
 
 export async function createService(opts: { code: string; nameKn?: string; isActive?: boolean }) {
-  return prisma.service.create({
-    data: {
-      code: opts.code,
-      nameKn: opts.nameKn ?? opts.code,
-      nameEn: opts.code,
-      isActive: opts.isActive ?? true,
-    },
-  });
+  await connectDb();
+  const s = await Service.create({ code: opts.code, nameKn: opts.nameKn ?? opts.code, nameEn: opts.code, isActive: opts.isActive ?? true });
+  return toPlain<{ id: string; code: string }>(s.toObject());
 }
 
 /** Create an ACTIVE user and return an agent already logged in as them. */
@@ -67,18 +68,15 @@ export async function createUser(opts: {
   status?: AccountStatus;
   fullName?: string;
 }) {
-  const passwordHash = await argon2.hash(opts.password ?? 'password123456', {
-    type: argon2.argon2id,
+  await connectDb();
+  const passwordHash = await argon2.hash(opts.password ?? 'password123456', { type: argon2.argon2id });
+  const user = await User.create({
+    fullName: opts.fullName ?? 'Test User',
+    phoneNormalized: opts.phone,
+    passwordHash,
+    role: opts.role ?? 'USER',
+    accountStatus: opts.status ?? 'ACTIVE',
   });
-  const user = await prisma.user.create({
-    data: {
-      fullName: opts.fullName ?? 'Test User',
-      phoneNormalized: opts.phone,
-      passwordHash,
-      role: opts.role ?? 'USER',
-      accountStatus: opts.status ?? 'ACTIVE',
-    },
-  });
-  await prisma.walletAccount.create({ data: { userId: user.id } });
-  return user;
+  await WalletAccount.create({ userId: user._id });
+  return { id: user._id, phoneNormalized: user.phoneNormalized };
 }

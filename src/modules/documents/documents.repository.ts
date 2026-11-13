@@ -1,1 +1,1 @@
-// documents.repository.ts — documents Prisma data access (ownership scoped)
+// documents.repository.ts — documents data access (ownership scoped)

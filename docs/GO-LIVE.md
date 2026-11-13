@@ -11,10 +11,9 @@
 - [ ] Hosting, expected load, uptime target, backup policy.
 
 ## Technical gates
-- [ ] Production DB + storage separate from staging; migrations reviewed; backups + a tested restore.
+- [ ] Production DB + storage separate from staging; Atlas Cloud Backup on (or scheduled `mongodump`) + a tested restore; `npm run db:indexes` run once.
 - [ ] No demo credentials, demo wallet credit, fake payment paths, or localStorage persistence.
-- [ ] Razorpay **live** keys + webhook secret configured; webhook reachable; tested with a small
-      real transaction; reconciliation alerts on.
+- [ ] UPI QR uploaded in Admin → UPI ಟಾಪ್-ಅಪ್; a small real top-up submitted, verified against the bank statement and approved.
 - [ ] Admin MFA enabled; initial SUPER_ADMIN created securely; least-privilege roles verified.
 - [ ] HTTPS, secure cookies, CORS allowlist, security headers, rate limits confirmed in prod config.
 - [ ] Private buckets by default; signed/authenticated downloads tested; IDOR tests pass.

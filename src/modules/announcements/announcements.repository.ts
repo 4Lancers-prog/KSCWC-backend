@@ -1,30 +1,35 @@
 // announcements.repository.ts — announcements data access.
-import type { Prisma } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import { Announcement } from '../../db/models';
+import { connectDb, toPlain } from '../../lib/db';
+import { crud } from '../../lib/crud';
 import { skip, type PageParams } from '../../common/utils/pagination';
 
 /** Public: only PUBLISHED, within publish/expiry window. */
-export function listPublic() {
+export async function listPublic() {
+  await connectDb();
   const now = new Date();
-  return prisma.announcement.findMany({
-    where: {
-      status: 'PUBLISHED',
-      OR: [{ publishAt: null }, { publishAt: { lte: now } }],
-      AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] }],
-    },
-    orderBy: [{ sortOrder: 'asc' }, { publishAt: 'desc' }],
-  });
+  const rows = await Announcement.find({
+    status: 'PUBLISHED',
+    $and: [
+      { $or: [{ publishAt: null }, { publishAt: { $lte: now } }] },
+      { $or: [{ expiresAt: null }, { expiresAt: { $gte: now } }] },
+    ],
+  })
+    .sort({ sortOrder: 1, publishAt: -1 })
+    .lean();
+  return toPlain<Record<string, unknown>[]>(rows);
 }
 
 export async function listAdmin(page: PageParams) {
+  await connectDb();
   const [items, total] = await Promise.all([
-    prisma.announcement.findMany({ orderBy: { createdAt: 'desc' }, skip: skip(page), take: page.limit }),
-    prisma.announcement.count(),
+    Announcement.find().sort({ createdAt: -1 }).skip(skip(page)).limit(page.limit).lean(),
+    Announcement.countDocuments(),
   ]);
-  return { items, total };
+  return { items: toPlain<Record<string, unknown>[]>(items), total };
 }
 
-export const findById = (id: string) => prisma.announcement.findUnique({ where: { id } });
-export const create = (data: Prisma.AnnouncementCreateInput) => prisma.announcement.create({ data });
-export const update = (id: string, data: Prisma.AnnouncementUpdateInput) =>
-  prisma.announcement.update({ where: { id }, data });
+const c = crud(Announcement);
+export const findById = c.findById;
+export const create = c.create;
+export const update = c.update;

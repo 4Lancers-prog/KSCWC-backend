@@ -17,6 +17,14 @@ Base path: `/api/v1`. JSON in/out except file downloads and the webhook. Errors 
 
 ## Users (admin) — `users:*`
 `GET /admin/users` · `GET /admin/users/:id` · `POST /admin/users/:id/{approve,reject,suspend,reactivate}`
+(reject/suspend take `{ reason }`; the user sees it when they try to log in)
+
+`GET /admin/overview` (`users:read`) — counts waiting on staff: pendingUsers, pendingManualTopups,
+openGrievances, newApplications (+ per kind), activeUsers, totalCustomers.
+
+## Me (operator)
+`GET /me/applications` — the signed-in operator's insurance / membership / training / grievance
+submissions with the admin's status and grievance `resolutionNote`.
 
 ## Services
 `GET /services` (public active) · admin: `GET/POST /admin/services`, `PATCH /admin/services/:id`,
@@ -31,9 +39,8 @@ Base path: `/api/v1`. JSON in/out except file downloads and the webhook. Errors 
 `/admin/reports/export.csv` (`reports:read:all`)
 
 ## Wallet & payments
-`GET /wallet` · `GET /wallet/transactions` · `POST /wallet/topups` (creates Razorpay order) ·
+`GET /wallet` · `GET /wallet/transactions` · `POST /wallet/manual-topups` (amount + UTR, optional screenshot) · `GET /wallet/manual-topups` ·
 `POST /payments/verify` (checkout signature) · `GET /payments/:id/status` ·
-`POST /payments/razorpay/webhook` (raw body + HMAC; no CSRF) ·
 admin `GET /admin/wallets`, `POST /admin/wallets/:userId/adjustments` (`wallet:adjust`).
 
 ## FID

@@ -52,7 +52,7 @@ router.post('/admin/applications/:kind/:id/status', requirePermission('applicati
     const parsed = statusSchemas[kind].safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ code: 'BAD_REQUEST', message: 'Invalid status', requestId: req.requestId });
     const note = kind === 'grievances' ? (parsed.data as { resolutionNote?: string }).resolutionNote : undefined;
-    const row = await svc.adminSetStatus(kind, req.params.id, parsed.data.status, actorOf(req), { resolutionNote: note });
+    const row = await svc.adminSetStatus(kind, req.params.id!, parsed.data.status, actorOf(req), { resolutionNote: note });
     return res.json({ application: row });
   }));
 

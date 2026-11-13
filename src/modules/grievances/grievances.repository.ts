@@ -1,1 +1,1 @@
-// grievances.repository.ts — grievances Prisma data access (ownership scoped)
+// grievances.repository.ts — grievances data access (ownership scoped)

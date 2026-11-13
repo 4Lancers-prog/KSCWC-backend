@@ -1,6 +1,7 @@
 // documents.service.ts — upload (content-validated), list, download, archive.
 import { nanoid } from 'nanoid';
-import { prisma } from '../../lib/prisma';
+import { DocumentModel } from '../../db/models';
+import { connectDb, toPlain } from '../../lib/db';
 import { AppError } from '../../common/errors/app-error';
 import { env } from '../../config/env';
 import * as storage from '../../lib/storage';
@@ -18,16 +19,19 @@ const ALLOWED: Record<string, { ext: string; sniff: (b: Buffer) => boolean }> = 
   },
 };
 
-export function listPublic() {
-  return prisma.document.findMany({
-    where: { visibility: 'PUBLIC', isActive: true, archivedAt: null },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, title: true, category: true, mimeType: true, sizeBytes: true, createdAt: true },
-  });
+export async function listPublic() {
+  await connectDb();
+  return toPlain<Record<string, unknown>[]>(
+    await DocumentModel.find({ visibility: 'PUBLIC', isActive: true, archivedAt: null })
+      .sort({ createdAt: -1 })
+      .select('title category mimeType sizeBytes createdAt')
+      .lean(),
+  );
 }
 
-export function listAdmin() {
-  return prisma.document.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' } });
+export async function listAdmin() {
+  await connectDb();
+  return toPlain<Record<string, unknown>[]>(await DocumentModel.find({ archivedAt: null }).sort({ createdAt: -1 }).lean());
 }
 
 export async function upload(
@@ -42,24 +46,25 @@ export async function upload(
 
   const key = `documents/${nanoid(20)}.${rule.ext}`; // randomised object key
   await storage.putPrivate(key, file.buffer, file.mimetype);
-  const doc = await prisma.document.create({
-    data: {
-      title: meta.title,
-      category: meta.category ?? null,
-      fileKey: key,
-      originalFilename: file.originalname.slice(0, 255),
-      mimeType: file.mimetype,
-      sizeBytes: BigInt(file.size),
-      visibility: meta.visibility,
-      uploadedById: actor.id,
-    },
-  });
+  await connectDb();
+  const doc = toPlain<{ id: string }>((await DocumentModel.create({
+    title: meta.title,
+    category: meta.category ?? null,
+    fileKey: key,
+    originalFilename: file.originalname.slice(0, 255),
+    mimeType: file.mimetype,
+    sizeBytes: file.size,
+    visibility: meta.visibility,
+    uploadedById: actor.id,
+  })).toObject());
   await writeAudit({ actorUserId: actor.id, action: 'document.upload', entityType: 'document', entityId: doc.id, requestId: actor.requestId, ip: actor.ip, after: { visibility: meta.visibility } });
   return doc;
 }
 
 export async function getForDownload(id: string, requester: { id?: string } | null) {
-  const doc = await prisma.document.findFirst({ where: { id, isActive: true, archivedAt: null } });
+  await connectDb();
+  const found = await DocumentModel.findOne({ _id: id, isActive: true, archivedAt: null }).lean();
+  const doc = found ? toPlain<{ id: string; visibility: string; fileKey: string; mimeType: string; originalFilename: string; title: string }>(found) : null;
   if (!doc) throw AppError.notFound('Document not found');
   if (doc.visibility === 'PRIVATE' && !requester?.id) throw AppError.notFound('Document not found');
   const buffer = await storage.getPrivate(doc.fileKey);
@@ -67,9 +72,9 @@ export async function getForDownload(id: string, requester: { id?: string } | nu
 }
 
 export async function archive(id: string, actor: Actor) {
-  const doc = await prisma.document.findUnique({ where: { id } });
-  if (!doc) throw AppError.notFound('Document not found');
-  await prisma.document.update({ where: { id }, data: { isActive: false, archivedAt: new Date() } });
+  await connectDb();
+  const res = await DocumentModel.updateOne({ _id: id }, { $set: { isActive: false, archivedAt: new Date() } });
+  if (res.matchedCount === 0) throw AppError.notFound('Document not found');
   await writeAudit({ actorUserId: actor.id, action: 'document.archive', entityType: 'document', entityId: id, requestId: actor.requestId, ip: actor.ip });
   return { ok: true };
 }

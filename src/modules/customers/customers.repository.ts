@@ -1,84 +1,114 @@
 // customers.repository.ts — customer data access (always ownership-scoped by the caller).
-import type { Prisma, PrismaClient } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import type { ClientSession } from 'mongoose';
+import { Customer, CustomerStatusHistory } from '../../db/models';
+import { connectDb, containsRegex, toPlain } from '../../lib/db';
 import { skip, type PageParams } from '../../common/utils/pagination';
+import type { CustomerStatus } from '../../shared/constants/customer-status';
 
-const WITH_SERVICE = {
-  service: { select: { id: true, code: true, nameKn: true, nameEn: true } },
-} satisfies Prisma.CustomerInclude;
-
-export function create(data: Prisma.CustomerCreateInput, tx?: Prisma.TransactionClient) {
-  return (tx ?? prisma).customer.create({ data, include: WITH_SERVICE });
+export interface CustomerRecord {
+  id: string;
+  ownerUserId: string;
+  serviceId: string;
+  fullName: string;
+  mobileNormalized: string;
+  referenceCode: string | null;
+  feePaise: number | null;
+  status: CustomerStatus;
+  notes: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  deletedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  service: { id: string; code: string; nameKn: string; nameEn: string | null } | null;
+  owner: { id: string; fullName: string; phoneNormalized: string; centreName: string | null } | null;
 }
 
-export function findById(id: string) {
-  return prisma.customer.findFirst({ where: { id, deletedAt: null }, include: WITH_SERVICE });
+export type CustomerFilter = Record<string, unknown>;
+
+// The API returns each customer with its service and owning operator embedded.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withRelations(q: any): any {
+  return q
+    .populate({ path: 'service', select: 'code nameKn nameEn' })
+    .populate({ path: 'owner', select: 'fullName phoneNormalized centreName' });
+}
+const plain = (c: unknown) => (c ? toPlain<CustomerRecord>(c) : null);
+
+export async function create(data: Omit<Partial<CustomerRecord>, 'id' | 'service' | 'owner'>, session?: ClientSession) {
+  await connectDb();
+  const [doc] = await Customer.create([data], { session });
+  return (await findById(doc!._id, session))!;
+}
+
+export async function findById(id: string, session?: ClientSession): Promise<CustomerRecord | null> {
+  await connectDb();
+  return plain(await withRelations(Customer.findOne({ _id: id, deletedAt: null }).session(session ?? null)).lean());
 }
 
 export function buildWhere(filter: {
   ownerUserId?: string;
-  status?: Prisma.CustomerWhereInput['status'];
+  status?: CustomerStatus;
   serviceId?: string;
   search?: string;
   from?: Date;
   to?: Date;
-}): Prisma.CustomerWhereInput {
+}): CustomerFilter {
   return {
     deletedAt: null,
     ...(filter.ownerUserId ? { ownerUserId: filter.ownerUserId } : {}),
     ...(filter.status ? { status: filter.status } : {}),
     ...(filter.serviceId ? { serviceId: filter.serviceId } : {}),
     ...(filter.from || filter.to
-      ? { createdAt: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
+      ? { createdAt: { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lte: filter.to } : {}) } }
       : {}),
     ...(filter.search
       ? {
-          OR: [
-            { fullName: { contains: filter.search, mode: 'insensitive' } },
-            { mobileNormalized: { contains: filter.search } },
-            { referenceCode: { contains: filter.search, mode: 'insensitive' } },
+          $or: [
+            { fullName: containsRegex(filter.search) },
+            { mobileNormalized: containsRegex(filter.search) },
+            { referenceCode: containsRegex(filter.search) },
           ],
         }
       : {}),
   };
 }
 
-export async function list(where: Prisma.CustomerWhereInput, page: PageParams) {
+export async function list(where: CustomerFilter, page: PageParams): Promise<{ items: CustomerRecord[]; total: number }> {
+  await connectDb();
   const [items, total] = await Promise.all([
-    prisma.customer.findMany({
-      where,
-      include: WITH_SERVICE,
-      orderBy: { createdAt: 'desc' },
-      skip: skip(page),
-      take: page.limit,
-    }),
-    prisma.customer.count({ where }),
+    withRelations(Customer.find(where).sort({ createdAt: -1 }).skip(skip(page)).limit(page.limit)).lean(),
+    Customer.countDocuments(where),
   ]);
-  return { items, total };
+  return { items: items.map((c: unknown) => plain(c)!), total };
 }
 
-/** For CSV export — stream-friendly: fetch all matching rows (capped by caller). */
-export function listAll(where: Prisma.CustomerWhereInput, cap = 10000) {
-  return prisma.customer.findMany({ where, include: WITH_SERVICE, orderBy: { createdAt: 'desc' }, take: cap });
+/** For CSV export: all matching rows (capped by caller). */
+export async function listAll(where: CustomerFilter, cap = 10000): Promise<CustomerRecord[]> {
+  await connectDb();
+  const items = await withRelations(Customer.find(where).sort({ createdAt: -1 }).limit(cap)).lean();
+  return items.map((c: unknown) => plain(c)!);
 }
 
-export function countRecentDuplicates(ownerUserId: string, mobile: string, serviceId: string, since: Date) {
-  return prisma.customer.count({
-    where: { ownerUserId, mobileNormalized: mobile, serviceId, deletedAt: null, createdAt: { gte: since } },
-  });
+export async function countRecentDuplicates(ownerUserId: string, mobile: string, serviceId: string, since: Date) {
+  await connectDb();
+  return Customer.countDocuments({ ownerUserId, mobileNormalized: mobile, serviceId, deletedAt: null, createdAt: { $gte: since } });
 }
 
-export function update(id: string, data: Prisma.CustomerUpdateInput) {
-  return prisma.customer.update({ where: { id }, data, include: WITH_SERVICE });
+export async function update(id: string, data: Record<string, unknown>, session?: ClientSession) {
+  await connectDb();
+  await Customer.updateOne({ _id: id }, { $set: data }, { session });
+  return (await findById(id, session))!;
 }
 
-export function addStatusHistory(
-  client: PrismaClient | Prisma.TransactionClient,
-  data: Prisma.CustomerStatusHistoryUncheckedCreateInput,
+export async function addStatusHistory(
+  session: ClientSession | undefined,
+  data: { customerId: string; oldStatus: CustomerStatus | null; newStatus: CustomerStatus; changedById: string | null; reason: string | null },
 ) {
-  return client.customerStatusHistory.create({ data });
+  await CustomerStatusHistory.create([data], { session });
 }
 
-export function listStatusHistory(customerId: string) {
-  return prisma.customerStatusHistory.findMany({ where: { customerId }, orderBy: { createdAt: 'asc' } });
+export async function listStatusHistory(customerId: string) {
+  await connectDb();
+  return toPlain<Record<string, unknown>[]>(await CustomerStatusHistory.find({ customerId }).sort({ createdAt: 1 }).lean());
 }

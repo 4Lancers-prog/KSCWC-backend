@@ -1,6 +1,6 @@
 # Manual UPI / QR Wallet Top-up
 
-A second top-up method alongside Razorpay: the council publishes a UPI QR, the user pays from
+The only top-up method: the council publishes a UPI QR, the user pays from
 their own UPI app and declares the UTR, and an admin verifies it and credits the wallet.
 
 ## Flow
@@ -36,10 +36,6 @@ their own UPI app and declares the UTR, and an admin verifies it and credits the
 - Uploads (QR + screenshot) are magic-byte validated (PNG/JPEG only), size-capped, stored private.
 - Every approve/reject/QR change is written to the audit log.
 
-## Migration (run locally after pulling)
-```bash
-cd kscwc-backend
-pnpm prisma generate
-pnpm prisma migrate dev --name manual_topups   # or: pnpm prisma db push
-```
-This adds the `manual_topup_requests` table and the `ManualTopupStatus` enum.
+## Setup
+Nothing to migrate: collections and the unique `utrNumber` index are created by `npm run db:seed`
+(or `npm run db:indexes`).

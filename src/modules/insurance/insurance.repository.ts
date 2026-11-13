@@ -1,1 +1,1 @@
-// insurance.repository.ts — insurance Prisma data access (ownership scoped)
+// insurance.repository.ts — insurance data access (ownership scoped)

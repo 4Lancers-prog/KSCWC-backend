@@ -52,7 +52,7 @@ router.post(
   requirePermission('users:approve'),
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    const user = await users.approveUser(req.params.id, actorOf(req));
+    const user = await users.approveUser(req.params.id!, actorOf(req));
     res.json({ user });
   }),
 );
@@ -65,7 +65,7 @@ router.post(
   validate(idParam, 'params'),
   validate(reasonBody),
   asyncHandler(async (req, res) => {
-    const user = await users.rejectUser(req.params.id, actorOf(req), valid<{ reason: string }>(req).reason);
+    const user = await users.rejectUser(req.params.id!, actorOf(req), valid<{ reason: string }>(req).reason);
     res.json({ user });
   }),
 );
@@ -76,7 +76,7 @@ router.post(
   validate(idParam, 'params'),
   validate(reasonBody),
   asyncHandler(async (req, res) => {
-    const user = await users.suspendUser(req.params.id, actorOf(req), valid<{ reason: string }>(req).reason);
+    const user = await users.suspendUser(req.params.id!, actorOf(req), valid<{ reason: string }>(req).reason);
     res.json({ user });
   }),
 );
@@ -86,7 +86,7 @@ router.post(
   requirePermission('users:suspend'),
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    const user = await users.reactivateUser(req.params.id, actorOf(req));
+    const user = await users.reactivateUser(req.params.id!, actorOf(req));
     res.json({ user });
   }),
 );

@@ -70,7 +70,7 @@ router.get(
   requireAuth,
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    res.json(await fid.getGeneration(req.params.id, req.user!.id));
+    res.json(await fid.getGeneration(req.params.id!, req.user!.id));
   }),
 );
 
@@ -79,7 +79,7 @@ router.get(
   requireAuth,
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    const pdf = await fid.getDownload(req.params.id, req.user!.id);
+    const pdf = await fid.getDownload(req.params.id!, req.user!.id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="fid-card-${req.params.id}.pdf"`);
     res.send(pdf);

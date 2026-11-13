@@ -6,32 +6,32 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: kscwc
-          POSTGRES_PASSWORD: kscwc
-          POSTGRES_DB: kscwc_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U kscwc" --health-interval 5s
-          --health-timeout 5s --health-retries 10
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
-      DIRECT_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
-      TEST_DATABASE_URL: postgresql://kscwc:kscwc@localhost:5432/kscwc_test
+      DATABASE_URL: mongodb://127.0.0.1:27017/kscwc_ci?replicaSet=rs0
+      TEST_DATABASE_URL: mongodb://127.0.0.1:27017/kscwc_test?replicaSet=rs0
       SESSION_SECRET: ci_session_secret_0123456789abcdef
       CSRF_SECRET: ci_csrf_secret_0123456789abcdef
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
+      # Wallet code uses transactions, which need a replica set (same as Atlas).
+      - name: Start MongoDB (single-node replica set)
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:8 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}).ok }" && break
+            sleep 2
+          done
+          for i in $(seq 1 30); do
+            docker exec mongo mongosh --quiet --eval "db.hello().isWritablePrimary" | grep -q true && break
+            sleep 2
+          done
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm db:generate
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: pnpm typecheck
-      - run: pnpm test
+      - run: npm run typecheck
+      - run: npm test

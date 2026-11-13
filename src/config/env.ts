@@ -4,8 +4,9 @@ import { z } from 'zod';
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  DATABASE_URL: z.string().min(1),
-  DIRECT_URL: z.string().optional(),
+  // MongoDB connection string, including the database name, e.g.
+  // mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/kscwc?retryWrites=true&w=majority
+  DATABASE_URL: z.string().regex(/^mongodb(\+srv)?:\/\//, 'DATABASE_URL must be a mongodb:// or mongodb+srv:// URL'),
   TEST_DATABASE_URL: z.string().optional(),
 
   SESSION_SECRET: z.string().min(16),
@@ -21,10 +22,6 @@ const EnvSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
-  RAZORPAY_KEY_ID: z.string().default('rzp_test_placeholder'),
-  RAZORPAY_KEY_SECRET: z.string().default('placeholder'),
-  RAZORPAY_WEBHOOK_SECRET: z.string().default('placeholder'),
-
   SUPABASE_URL: z.string().optional().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
   OBJECT_STORAGE_BUCKET_PRIVATE: z.string().default('kscwc-private'),
@@ -33,6 +30,10 @@ const EnvSchema = z.object({
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   API_PORT: z.coerce.number().int().positive().default(4000),
   CORS_ALLOWLIST: z.string().default('http://localhost:5173'),
+  // 'lax' when the SPA and API share a site (same domain or the SPA proxies /api — recommended).
+  // 'none' only when the SPA and API live on DIFFERENT sites (e.g. *.netlify.app + *.onrender.com);
+  // that forces Secure cookies, so the API must be served over HTTPS.
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
 
   SENTRY_DSN: z.string().optional().default(''),
   DEFAULT_TIMEZONE: z.string().default('Asia/Kolkata'),
@@ -52,4 +53,7 @@ if (!parsed.success) {
 export const env = parsed.data;
 export const isProd = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
+export const cookieSameSite = env.COOKIE_SAMESITE;
+// SameSite=None cookies are rejected by browsers unless Secure.
+export const cookieSecure = isProd || env.COOKIE_SAMESITE === 'none';
 export const corsAllowlist = env.CORS_ALLOWLIST.split(',').map((s) => s.trim()).filter(Boolean);

@@ -18,7 +18,7 @@ const idParam = z.object({ id: z.string().uuid() });
 router.get('/public/documents', asyncHandler(async (_req, res) => res.json({ items: await svc.listPublic() })));
 
 router.get('/public/documents/:id/download', validate(idParam, 'params'), asyncHandler(async (req, res) => {
-  const { doc, buffer } = await svc.getForDownload(req.params.id, req.user ? { id: req.user.id } : null);
+  const { doc, buffer } = await svc.getForDownload(req.params.id!, req.user ? { id: req.user.id } : null);
   res.setHeader('Content-Type', doc.mimeType);
   res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.originalFilename)}"`);
   res.send(buffer);
@@ -39,6 +39,6 @@ router.post(
 );
 
 router.post('/admin/documents/:id/archive', requirePermission('documents:manage'), validate(idParam, 'params'),
-  asyncHandler(async (req, res) => res.json(await svc.archive(req.params.id, actorOf(req)))));
+  asyncHandler(async (req, res) => res.json(await svc.archive(req.params.id!, actorOf(req)))));
 
 export default router;

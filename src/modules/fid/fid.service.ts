@@ -2,7 +2,9 @@
 // Flow: reserve (debit ₹5) + create PROCESSING row in ONE tx → render PDF → on success mark
 // SUCCEEDED; on failure post a compensating REFUND (net zero) and mark FAILED. Re-download is
 // free. Same idempotency key never charges twice.
-import { prisma } from '../../lib/prisma';
+import { FidGeneration, SystemSetting } from '../../db/models';
+import { connectDb, duplicateKeyFields, toPlain, withTransaction } from '../../lib/db';
+import type { FidGenerationRecord } from './fid.repository';
 import { env } from '../../config/env';
 import { AppError } from '../../common/errors/app-error';
 import { FID_TEMPLATE_VERSION } from '../../config/constants';
@@ -27,7 +29,7 @@ export type RenderFn = (data: FidCardData) => Promise<Buffer>;
 function summarize(g: {
   id: string;
   status: string;
-  chargePaise: bigint | number;
+  chargePaise: number;
   createdAt: Date;
   completedAt: Date | null;
 }) {
@@ -71,30 +73,49 @@ export async function generateFid(
 
   // 1) Reserve: create the generation row and debit ₹5 atomically.
   //    If balance < ₹5, the whole transaction rolls back (no row, no charge).
-  const gen = await prisma.$transaction(async (tx) => {
-    const g = await tx.fidGeneration.create({
-      data: {
+  let gen: FidGenerationRecord;
+  try {
+    gen = await withTransaction(async (session) => {
+      const [g] = await FidGeneration.create(
+        [
+          {
+            userId: actor.id,
+            customerId: input.customerId ?? null,
+            templateVersion: FID_TEMPLATE_VERSION,
+            idempotencyKey,
+            status: 'PROCESSING',
+            chargePaise: price,
+          },
+        ],
+        { session },
+      );
+      const charge = await postLedgerEntry(session, {
         userId: actor.id,
-        customerId: input.customerId ?? null,
-        templateVersion: FID_TEMPLATE_VERSION,
-        idempotencyKey,
-        status: 'PROCESSING',
-        chargePaise: BigInt(price),
-      },
+        type: 'CARD_CHARGE',
+        direction: 'DEBIT',
+        amountPaise: price,
+        idempotencyKey: `fidcharge:${g!._id}`,
+        referenceType: 'fid_generation',
+        referenceId: g!._id,
+        description: 'FID card generation',
+        createdById: actor.id,
+      });
+      const updated = await FidGeneration.findByIdAndUpdate(
+        g!._id,
+        { $set: { walletTransactionId: charge.id } },
+        { new: true, session },
+      ).lean();
+      return toPlain<FidGenerationRecord>(updated);
     });
-    const charge = await postLedgerEntry(tx, {
-      userId: actor.id,
-      type: 'CARD_CHARGE',
-      direction: 'DEBIT',
-      amountPaise: price,
-      idempotencyKey: `fidcharge:${g.id}`,
-      referenceType: 'fid_generation',
-      referenceId: g.id,
-      description: 'FID card generation',
-      createdById: actor.id,
-    });
-    return tx.fidGeneration.update({ where: { id: g.id }, data: { walletTransactionId: charge.id } });
-  });
+  } catch (err) {
+    // Same idempotency key submitted twice at the same moment (double click): the first one won,
+    // so return its attempt instead of erroring — and never charge twice.
+    if ((duplicateKeyFields(err) ?? []).includes('idempotencyKey')) {
+      const winner = await repo.findByIdempotencyKey(idempotencyKey);
+      if (winner && winner.userId === actor.id) return summarize(winner);
+    }
+    throw err;
+  }
 
   // 2) Render + store OUTSIDE the charge transaction.
   try {
@@ -122,8 +143,8 @@ export async function generateFid(
     return summarize(done);
   } catch (err) {
     // 3) Compensating refund (immutable ledger → new REFUND entry) + mark FAILED. Net charge zero.
-    await prisma.$transaction((tx) =>
-      postLedgerEntry(tx, {
+    await withTransaction((session) =>
+      postLedgerEntry(session, {
         userId: actor.id,
         type: 'REFUND',
         direction: 'CREDIT',
@@ -172,17 +193,15 @@ const FID_PORTAL_KEY = 'fid_portal_url';
 const DEFAULT_FID_PORTAL_URL = 'https://kkisan.karnataka.gov.in/Citizen/FarmServiceFIDDetails.aspx?AID=FM';
 
 export async function getFidPortalUrl(): Promise<{ url: string }> {
-  const s = await prisma.systemSetting.findUnique({ where: { key: FID_PORTAL_KEY } });
+  await connectDb();
+  const s = await SystemSetting.findById(FID_PORTAL_KEY).lean();
   const stored = (s?.value as { url?: string } | undefined)?.url;
   return { url: stored || DEFAULT_FID_PORTAL_URL };
 }
 
 export async function setFidPortalUrl(url: string, actor: Actor): Promise<{ url: string }> {
-  await prisma.systemSetting.upsert({
-    where: { key: FID_PORTAL_KEY },
-    create: { key: FID_PORTAL_KEY, value: { url }, updatedById: actor.id },
-    update: { value: { url }, updatedById: actor.id },
-  });
+  await connectDb();
+  await SystemSetting.updateOne({ _id: FID_PORTAL_KEY }, { $set: { value: { url }, updatedById: actor.id } }, { upsert: true });
   await writeAudit({
     actorUserId: actor.id,
     action: 'fid_portal_url.update',

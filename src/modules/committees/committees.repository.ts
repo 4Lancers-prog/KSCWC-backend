@@ -1,23 +1,40 @@
 // committees.repository.ts — committee member data access.
-import type { Prisma } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import { CommitteeMember } from '../../db/models';
+import { connectDb, toPlain } from '../../lib/db';
+import { crud } from '../../lib/crud';
 
-export function listPublic(filter: { committeeType?: Prisma.CommitteeMemberWhereInput['committeeType']; district?: string }) {
-  return prisma.committeeMember.findMany({
-    where: {
-      isActive: true,
-      archivedAt: null,
-      ...(filter.committeeType ? { committeeType: filter.committeeType } : {}),
-      ...(filter.district ? { district: filter.district } : {}),
-    },
-    orderBy: [{ committeeType: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-  });
+// Display order of committee types (Founders first …), then sortOrder, then name.
+const TYPE_ORDER = ['FOUNDER', 'TRUSTEE', 'STATE', 'DISTRICT'];
+type Row = { committeeType: string; sortOrder: number; name: string } & Record<string, unknown>;
+const byDisplayOrder = (a: Row, b: Row) =>
+  TYPE_ORDER.indexOf(a.committeeType) - TYPE_ORDER.indexOf(b.committeeType) ||
+  a.sortOrder - b.sortOrder ||
+  a.name.localeCompare(b.name);
+
+export async function listPublic(filter: { committeeType?: string; district?: string }) {
+  await connectDb();
+  const rows = await CommitteeMember.find({
+    isActive: true,
+    archivedAt: null,
+    ...(filter.committeeType ? { committeeType: filter.committeeType } : {}),
+    ...(filter.district ? { district: filter.district } : {}),
+  }).lean();
+  return toPlain<Row[]>(rows).sort(byDisplayOrder);
 }
 
-export function listAdmin() {
-  return prisma.committeeMember.findMany({ orderBy: [{ committeeType: 'asc' }, { sortOrder: 'asc' }] });
+export async function listAdmin() {
+  await connectDb();
+  return toPlain<Row[]>(await CommitteeMember.find().lean()).sort(byDisplayOrder);
 }
 
-export const findById = (id: string) => prisma.committeeMember.findUnique({ where: { id } });
-export const create = (data: Prisma.CommitteeMemberCreateInput) => prisma.committeeMember.create({ data });
-export const update = (id: string, data: Prisma.CommitteeMemberUpdateInput) => prisma.committeeMember.update({ where: { id }, data });
+/** Save a new manual order in one round trip. */
+export async function reorder(order: { id: string; sortOrder: number }[]) {
+  await connectDb();
+  if (order.length === 0) return;
+  await CommitteeMember.bulkWrite(order.map((o) => ({ updateOne: { filter: { _id: o.id }, update: { $set: { sortOrder: o.sortOrder } } } })));
+}
+
+const c = crud(CommitteeMember);
+export const findById = c.findById;
+export const create = c.create;
+export const update = c.update;

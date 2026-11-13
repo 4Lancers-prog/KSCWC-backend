@@ -50,7 +50,7 @@ router.patch(
   validate(idParam, 'params'),
   validate(serviceUpdateSchema),
   asyncHandler(async (req, res) => {
-    const updated = await services.updateService(req.params.id, valid(req), actorOf(req));
+    const updated = await services.updateService(req.params.id!, valid(req), actorOf(req));
     res.json({ service: updated });
   }),
 );
@@ -60,7 +60,7 @@ router.post(
   requirePermission('services:manage'),
   validate(idParam, 'params'),
   asyncHandler(async (req, res) => {
-    const updated = await services.deactivateService(req.params.id, actorOf(req));
+    const updated = await services.deactivateService(req.params.id!, actorOf(req));
     res.json({ service: updated });
   }),
 );

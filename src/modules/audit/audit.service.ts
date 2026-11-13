@@ -1,6 +1,7 @@
 // audit.service.ts — append-only audit trail writer. Never throws into the caller's path.
 import crypto from 'node:crypto';
-import { prisma } from '../../lib/prisma';
+import { AuditLog } from '../../db/models';
+import { connectDb } from '../../lib/db';
 import { logger } from '../../lib/logger';
 
 export interface AuditInput {
@@ -41,17 +42,16 @@ function redact(value: unknown): unknown {
 
 export async function writeAudit(input: AuditInput): Promise<void> {
   try {
-    await prisma.auditLog.create({
-      data: {
-        actorUserId: input.actorUserId ?? null,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId ?? null,
-        requestId: input.requestId ?? null,
-        beforeRedacted: redact(input.before) as object | undefined,
-        afterRedacted: redact(input.after) as object | undefined,
-        ipHash: hashIp(input.ip),
-      },
+    await connectDb();
+    await AuditLog.create({
+      actorUserId: input.actorUserId ?? null,
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId ?? null,
+      requestId: input.requestId ?? null,
+      beforeRedacted: redact(input.before) ?? null,
+      afterRedacted: redact(input.after) ?? null,
+      ipHash: hashIp(input.ip),
     });
   } catch (err) {
     // Audit must never break the business operation; log and continue.

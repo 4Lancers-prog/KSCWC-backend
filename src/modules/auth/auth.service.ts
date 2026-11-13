@@ -2,8 +2,9 @@
 import crypto from 'node:crypto';
 import argon2 from 'argon2';
 import { authenticator } from 'otplib';
+import type { Request } from 'express';
 import type { Session } from 'express-session';
-import type { User } from '@prisma/client';
+import type { UserRecord as User } from '../../db/models';
 import { env } from '../../config/env';
 import { AppError } from '../../common/errors/app-error';
 import { normalizePhone, normalizeEmail, cleanText } from '../../common/utils/normalize';
@@ -78,7 +79,11 @@ export async function register(input: RegisterInput, ctx: Ctx): Promise<SessionU
   return toSessionUser(user);
 }
 
-export async function login(input: LoginInput, session: Session, ctx: Ctx): Promise<SessionUser> {
+export async function login(
+  input: LoginInput,
+  req: Request,
+  ctx: Ctx,
+): Promise<{ user: SessionUser; mfaSetupRequired: boolean }> {
   const phone = normalizePhone(input.phone);
   const user = await repo.findByPhone(phone);
 
@@ -100,10 +105,12 @@ export async function login(input: LoginInput, session: Session, ctx: Ctx): Prom
     throw new AppError(403, 'ACCOUNT_PENDING', 'Your account is awaiting admin approval');
   }
   if (user.accountStatus === 'REJECTED') {
-    throw new AppError(403, 'ACCOUNT_REJECTED', 'Your registration was not approved. Contact support.');
+    const why = user.rejectedReason ? ` Reason: ${user.rejectedReason.trim().replace(/[.\s]+$/, '')}.` : '';
+    throw new AppError(403, 'ACCOUNT_REJECTED', `Your registration was not approved.${why} Contact support.`);
   }
   if (user.accountStatus === 'SUSPENDED') {
-    throw new AppError(403, 'ACCOUNT_SUSPENDED', 'Your account is suspended. Contact support.');
+    const why = user.rejectedReason ? ` Reason: ${user.rejectedReason.trim().replace(/[.\s]+$/, '')}.` : '';
+    throw new AppError(403, 'ACCOUNT_SUSPENDED', `Your account is suspended.${why} Contact support.`);
   }
 
   // Admins with MFA enrolled must present a valid TOTP (secret is encrypted at rest).
@@ -117,12 +124,17 @@ export async function login(input: LoginInput, session: Session, ctx: Ctx): Prom
   }
 
   // Regenerate the session on login to prevent session fixation (new id for the new identity).
-  await new Promise<void>((resolve, reject) => session.regenerate((err) => (err ? reject(err) : resolve())));
-  session.userId = user.id;
+  // IMPORTANT: regenerate() REPLACES req.session with a brand-new object. Writing to a reference
+  // captured before regenerate (the old bug) silently drops userId, so the user looked logged in
+  // for one response and was anonymous on every request after. Always write to req.session here.
+  await new Promise<void>((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
+  const mfaSetupRequired = env.ADMIN_MFA_REQUIRED && isAdminRole(user.role) && !mfaEnrolled;
+  req.session.userId = user.id;
   // Policy: when admin MFA is mandatory and this admin hasn't enrolled yet, flag the session so
   // it can reach only the MFA-setup routes until enrolment completes (enforced by middleware).
-  session.mfaSetupRequired =
-    env.ADMIN_MFA_REQUIRED && isAdminRole(user.role) && !mfaEnrolled;
+  req.session.mfaSetupRequired = mfaSetupRequired;
+  // Persist before responding so the very next request (GET /auth/me) already sees the login.
+  await new Promise<void>((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())));
   await writeAudit({
     actorUserId: user.id,
     action: 'user.login',
@@ -131,7 +143,7 @@ export async function login(input: LoginInput, session: Session, ctx: Ctx): Prom
     requestId: ctx.requestId,
     ip: ctx.ip,
   });
-  return toSessionUser(user);
+  return { user: toSessionUser(user), mfaSetupRequired };
 }
 
 export function logout(session: Session): Promise<void> {

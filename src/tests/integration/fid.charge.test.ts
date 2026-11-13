@@ -1,6 +1,7 @@
 // fid.charge.test.ts — ₹5 charged once, re-download free, failed render refunds (AC-09).
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { prisma } from '../../lib/prisma';
+import { FidGeneration, WalletAccount, WalletTransaction } from '../../db/models';
+import { withTransaction } from '../../lib/db';
 import { resetDb, createUser } from '../helpers/test-db';
 import { postLedgerEntry } from '../../modules/wallet/wallet-ledger.service';
 import * as fid from '../../modules/fid/fid.service';
@@ -17,9 +18,9 @@ const failRender = async () => {
   throw new Error('render boom');
 };
 const balanceOf = async (userId: string) =>
-  Number((await prisma.walletAccount.findUniqueOrThrow({ where: { userId } })).balancePaise);
+  (await WalletAccount.findOne({ userId }).orFail().lean()).balancePaise;
 const seed = (userId: string, paise: number) =>
-  prisma.$transaction((tx) =>
+  withTransaction((tx) =>
     postLedgerEntry(tx, { userId, type: 'TOPUP', direction: 'CREDIT', amountPaise: paise, idempotencyKey: `seed:${userId}` }),
   );
 
@@ -44,7 +45,7 @@ describe('FID ₹5-once charging', () => {
     expect(await balanceOf(u.id)).toBe(9500);
 
     // only one CARD_CHARGE
-    expect(await prisma.walletTransaction.count({ where: { userId: u.id, type: 'CARD_CHARGE' } })).toBe(1);
+    expect(await WalletTransaction.countDocuments({ userId: u.id, type: 'CARD_CHARGE' })).toBe(1);
   });
 
   it('a retry with the same idempotency key does not charge again', async () => {
@@ -54,7 +55,7 @@ describe('FID ₹5-once charging', () => {
     const again = await fid.generateFid({ id: u.id }, INPUT, 'k-same', okRender);
     expect(again.id).toBe(first.id);
     expect(await balanceOf(u.id)).toBe(9500);
-    expect(await prisma.fidGeneration.count({ where: { userId: u.id } })).toBe(1);
+    expect(await FidGeneration.countDocuments({ userId: u.id })).toBe(1);
   });
 
   it('a failed render refunds — net charge is zero', async () => {
@@ -64,10 +65,10 @@ describe('FID ₹5-once charging', () => {
       code: 'FID_RENDER_FAILED',
     });
     expect(await balanceOf(u.id)).toBe(1000); // debit 500 then refund 500
-    const g = await prisma.fidGeneration.findFirstOrThrow({ where: { userId: u.id } });
+    const g = await FidGeneration.findOne({ userId: u.id }).orFail().lean();
     expect(g.status).toBe('FAILED');
-    expect(await prisma.walletTransaction.count({ where: { userId: u.id, type: 'CARD_CHARGE' } })).toBe(1);
-    expect(await prisma.walletTransaction.count({ where: { userId: u.id, type: 'REFUND' } })).toBe(1);
+    expect(await WalletTransaction.countDocuments({ userId: u.id, type: 'CARD_CHARGE' })).toBe(1);
+    expect(await WalletTransaction.countDocuments({ userId: u.id, type: 'REFUND' })).toBe(1);
   });
 
   it('insufficient balance blocks generation with no charge and no row', async () => {
@@ -77,6 +78,6 @@ describe('FID ₹5-once charging', () => {
       code: 'INSUFFICIENT_FUNDS',
     });
     expect(await balanceOf(u.id)).toBe(400);
-    expect(await prisma.fidGeneration.count({ where: { userId: u.id } })).toBe(0);
+    expect(await FidGeneration.countDocuments({ userId: u.id })).toBe(0);
   });
 });

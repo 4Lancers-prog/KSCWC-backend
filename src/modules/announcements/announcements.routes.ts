@@ -29,9 +29,9 @@ router.post('/admin/announcements', requirePermission('content:manage'), validat
   asyncHandler(async (req, res) => res.status(201).json({ announcement: await svc.createAnnouncement(valid(req), actorOf(req)) })));
 
 router.patch('/admin/announcements/:id', requirePermission('content:manage'), validate(idParam, 'params'), validate(announcementUpdateSchema),
-  asyncHandler(async (req, res) => res.json({ announcement: await svc.updateAnnouncement(req.params.id, valid(req), actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ announcement: await svc.updateAnnouncement(req.params.id!, valid(req), actorOf(req)) })));
 
 router.post('/admin/announcements/:id/archive', requirePermission('content:manage'), validate(idParam, 'params'),
-  asyncHandler(async (req, res) => res.json({ announcement: await svc.archiveAnnouncement(req.params.id, actorOf(req)) })));
+  asyncHandler(async (req, res) => res.json({ announcement: await svc.archiveAnnouncement(req.params.id!, actorOf(req)) })));
 
 export default router;
