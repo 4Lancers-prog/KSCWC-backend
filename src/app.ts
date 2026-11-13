@@ -14,6 +14,7 @@ import { errorHandler } from './middleware/error-handler';
 import { notFound } from './middleware/not-found';
 import { asyncHandler } from './middleware/async-handler';
 import mongoose from 'mongoose';
+import { proxyClientIp } from './middleware/proxy-client-ip';
 import { connectDb } from './lib/db';
 
 import authRoutes from './modules/auth/auth.routes';
@@ -38,6 +39,7 @@ export function buildApp(): Express {
 
   app.set('trust proxy', 1); // behind a reverse proxy in prod (secure cookies, correct req.ip)
 
+  app.use(proxyClientIp); // real visitor IP when requests come through our Cloudflare Worker
   app.use(requestContext);
   app.use(requestLogger);
   app.use(securityHeaders);

@@ -34,6 +34,11 @@ const EnvSchema = z.object({
   // 'none' only when the SPA and API live on DIFFERENT sites (e.g. *.netlify.app + *.onrender.com);
   // that forces Secure cookies, so the API must be served over HTTPS.
   COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  // Shared secret between the Cloudflare Worker (which proxies /api) and this API. When a request
+  // carries it, the visitor's real IP from the Worker is used for rate limiting and audit logs —
+  // otherwise every user would appear to come from Cloudflare's few IPs and lock each other out.
+  // Leave empty when not behind the Worker. Must match the Worker's PROXY_SHARED_SECRET.
+  PROXY_SHARED_SECRET: z.string().optional().default(''),
 
   SENTRY_DSN: z.string().optional().default(''),
   DEFAULT_TIMEZONE: z.string().default('Asia/Kolkata'),
@@ -43,7 +48,8 @@ const EnvSchema = z.object({
   MAX_UPLOAD_SIZE_BYTES: z.coerce.number().int().positive().default(5_242_880),
 });
 
-const parsed = EnvSchema.safeParse(process.env);
+// Hosts like Railway/Render tell the app which port to use via PORT.
+const parsed = EnvSchema.safeParse({ ...process.env, API_PORT: process.env.API_PORT ?? process.env.PORT });
 if (!parsed.success) {
   // eslint-disable-next-line no-console
   console.error('❌ Invalid environment variables:\n', parsed.error.flatten().fieldErrors);
