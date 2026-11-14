@@ -16,6 +16,7 @@ import {
 } from '../../shared/schemas/auth.schema';
 import { isProd } from '../../config/env';
 import * as authRepo from './auth.repository';
+import { releaseActiveLogin } from '../devices/device-policy';
 import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
@@ -51,6 +52,7 @@ router.post(
 router.post(
   '/auth/logout',
   asyncHandler(async (req, res) => {
+    if (req.user?.role === 'USER') await releaseActiveLogin(req.user.id, req.sessionID);
     await auth.logout(req.session);
     res.clearCookie('kscwc.sid');
     res.json({ ok: true });

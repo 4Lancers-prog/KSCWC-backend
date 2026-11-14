@@ -20,6 +20,8 @@ declare global {
     interface Request {
       user?: AuthUser;
       requestId: string;
+      /** Set when an operator's login was taken over by another device or ended by an admin. */
+      sessionEnded?: boolean;
     }
   }
 }

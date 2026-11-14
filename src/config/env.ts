@@ -34,6 +34,10 @@ const EnvSchema = z.object({
   // 'none' only when the SPA and API live on DIFFERENT sites (e.g. *.netlify.app + *.onrender.com);
   // that forces Secure cookies, so the API must be served over HTTPS.
   COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  // Operator device rules: max registered devices per operator, and how long a signed-in device
+  // may sit unused before another device is allowed to take over the login.
+  OPERATOR_MAX_DEVICES: z.coerce.number().int().min(1).max(10).default(2),
+  DEVICE_IDLE_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(30),
   // Shared secret between the Cloudflare Worker (which proxies /api) and this API. When a request
   // carries it, the visitor's real IP from the Worker is used for rate limiting and audit logs —
   // otherwise every user would appear to come from Cloudflare's few IPs and lock each other out.

@@ -9,6 +9,7 @@ import { env } from '../../config/env';
 import { AppError } from '../../common/errors/app-error';
 import { normalizePhone, normalizeEmail, cleanText } from '../../common/utils/normalize';
 import { PASSWORD_RESET_TTL_MS } from '../../config/constants';
+import { checkOperatorLogin, claimActiveLogin } from '../devices/device-policy';
 import { isAdminRole } from '../../shared/constants/roles';
 import type { SessionUser } from '../../shared/types/api';
 import type { RegisterInput, LoginInput } from '../../shared/schemas/auth.schema';
@@ -123,6 +124,10 @@ export async function login(
     if (!valid) throw new AppError(401, 'MFA_INVALID', 'Invalid authenticator code');
   }
 
+  // Operators: max 2 registered devices, one signed in at a time (staff are not limited).
+  const isOperator = user.role === 'USER';
+  if (isOperator) await checkOperatorLogin(user.id, input.deviceId, req.get('user-agent'));
+
   // Regenerate the session on login to prevent session fixation (new id for the new identity).
   // IMPORTANT: regenerate() REPLACES req.session with a brand-new object. Writing to a reference
   // captured before regenerate (the old bug) silently drops userId, so the user looked logged in
@@ -135,6 +140,14 @@ export async function login(
   req.session.mfaSetupRequired = mfaSetupRequired;
   // Persist before responding so the very next request (GET /auth/me) already sees the login.
   await new Promise<void>((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())));
+  if (isOperator) {
+    try {
+      await claimActiveLogin(user.id, input.deviceId!, req.sessionID);
+    } catch (e) {
+      await new Promise<void>((resolve) => req.session.destroy(() => resolve()));
+      throw e;
+    }
+  }
   await writeAudit({
     actorUserId: user.id,
     action: 'user.login',

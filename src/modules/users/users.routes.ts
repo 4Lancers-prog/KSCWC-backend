@@ -9,6 +9,8 @@ import { ACCOUNT_STATUSES } from '../../shared/constants/account-status';
 import { resolvePage, paginate } from '../../common/utils/pagination';
 import { AppError } from '../../common/errors/app-error';
 import * as users from './users.service';
+import * as devices from '../devices/device-policy';
+import { writeAudit } from '../audit/audit.service';
 
 const router = Router();
 const actorOf = (req: import('express').Request) => ({
@@ -88,6 +90,44 @@ router.post(
   asyncHandler(async (req, res) => {
     const user = await users.reactivateUser(req.params.id!, actorOf(req));
     res.json({ user });
+  }),
+);
+
+// ── Operator devices (max 2, one signed in at a time) ──
+router.get(
+  '/admin/users/:id/devices',
+  requirePermission('users:read'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    res.json(await devices.listDevices(req.params.id!));
+  }),
+);
+
+router.delete(
+  '/admin/users/:id/devices/:deviceId',
+  requirePermission('users:suspend'),
+  validate(z.object({ id: z.string().uuid(), deviceId: z.string().uuid() }), 'params'),
+  asyncHandler(async (req, res) => {
+    const { label } = await devices.removeDevice(req.params.id!, req.params.deviceId!);
+    await writeAudit({
+      actorUserId: req.user!.id, action: 'user.device.remove', entityType: 'user', entityId: req.params.id!,
+      requestId: req.requestId, ip: req.ip, after: { device: label },
+    });
+    res.json({ ok: true });
+  }),
+);
+
+router.post(
+  '/admin/users/:id/sign-out',
+  requirePermission('users:suspend'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    await devices.endActiveLogin(req.params.id!);
+    await writeAudit({
+      actorUserId: req.user!.id, action: 'user.session.end', entityType: 'user', entityId: req.params.id!,
+      requestId: req.requestId, ip: req.ip,
+    });
+    res.json({ ok: true });
   }),
 );
 

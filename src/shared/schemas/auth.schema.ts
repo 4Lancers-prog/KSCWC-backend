@@ -18,6 +18,8 @@ export const loginSchema = z.object({
   phone: phoneSchema,
   password: z.string().min(1, 'Password is required'),
   mfaToken: z.string().trim().length(6).optional(),
+  // Random per-browser id from the frontend (operator device rules).
+  deviceId: z.string().trim().min(8).max(100).optional(),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 

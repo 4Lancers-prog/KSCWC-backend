@@ -4,7 +4,11 @@ import { AppError } from '../common/errors/app-error';
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   if (!req.user) {
-    next(AppError.unauthorized());
+    next(
+      req.sessionEnded
+        ? new AppError(401, 'SESSION_ENDED', 'You were signed out because this account was used on another device or an admin ended your session.')
+        : AppError.unauthorized(),
+    );
     return;
   }
   if (req.user.accountStatus !== 'ACTIVE') {

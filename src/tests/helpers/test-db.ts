@@ -2,6 +2,7 @@
 import type { Express } from 'express';
 import request from 'supertest';
 import argon2 from 'argon2';
+import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { ALL_MODELS, Service, User, WalletAccount } from '../../db/models';
 import { connectDb, toPlain } from '../../lib/db';
@@ -29,17 +30,21 @@ export async function resetDb(): Promise<void> {
 type RealAgent = ReturnType<typeof request.agent>;
 /** The real supertest agent, augmented with a self `agent` ref and the CSRF token,
  *  so tests can call `.get/.post/.patch` directly or pass it to the `post` helper. */
-export type Agent = RealAgent & { agent: RealAgent; csrf: string };
+export type Agent = RealAgent & { agent: RealAgent; csrf: string; deviceId: string };
 
 /** A supertest agent that persists cookies, primed with a CSRF token. */
 export async function makeAgent(app: Express): Promise<Agent> {
   const agent = request.agent(app);
   const res = await agent.get('/api/v1/auth/csrf');
-  return Object.assign(agent, { agent, csrf: res.body.csrfToken as string });
+  // each agent is one browser = one device (the real frontend sends its stored device id on login)
+  return Object.assign(agent, { agent, csrf: res.body.csrfToken as string, deviceId: randomUUID() });
 }
 
 /** POST helper that includes the CSRF header. */
 export function post(a: Agent, path: string, body?: object | string) {
+  if (path === '/api/v1/auth/login' && body && typeof body === 'object' && !('deviceId' in body)) {
+    body = { ...body, deviceId: a.deviceId };
+  }
   return a.agent.post(path).set(CSRF_HEADER_NAME, a.csrf).send(body);
 }
 

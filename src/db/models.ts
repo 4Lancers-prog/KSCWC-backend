@@ -50,6 +50,11 @@ const UserSchema = new Schema(
     rejectedReason: str,
     approvedById: optRef('User'),
     approvedAt: date,
+    // Operators: the ONE login currently allowed (see modules/devices/device-policy.ts).
+    activeSession: {
+      type: new Schema({ sessionId: String, deviceId: String, lastSeenAt: Date }, { _id: false }),
+      default: null,
+    },
   },
   ts,
 );
@@ -66,6 +71,19 @@ const PasswordResetTokenSchema = new Schema(
   },
   createdOnly,
 );
+
+// Browsers an operator has signed in from (max 2; admin can remove one to free a slot).
+const UserDeviceSchema = new Schema(
+  {
+    _id: id,
+    userId: { ...ref('User'), required: true },
+    deviceId: { type: String, required: true, maxlength: 100 },
+    label: { type: String, default: 'Unknown device', maxlength: 120 },
+    lastSeenAt: { type: Date, default: () => new Date() },
+  },
+  ts,
+);
+UserDeviceSchema.index({ userId: 1, deviceId: 1 }, { unique: true });
 
 // ── Services & customers ──
 const ServiceSchema = new Schema(
@@ -375,6 +393,7 @@ function model<S extends Schema>(name: string, schema: S, collection: string) {
 }
 
 export const User = model('User', UserSchema, 'users');
+export const UserDevice = model('UserDevice', UserDeviceSchema, 'user_devices');
 export const PasswordResetToken = model('PasswordResetToken', PasswordResetTokenSchema, 'password_reset_tokens');
 export const Service = model('Service', ServiceSchema, 'services');
 export const Customer = model('Customer', CustomerSchema, 'customers');
@@ -396,7 +415,7 @@ export const SystemSetting = model('SystemSetting', SystemSettingSchema, 'system
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ALL_MODELS: mongoose.Model<any>[] = [
-  User, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
+  User, UserDevice, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
   ManualTopupRequest, FidGeneration, Announcement, CommitteeMember, GovernmentLink, DocumentModel,
   InsuranceRequest, MembershipApplication, TrainingRegistration, Grievance, AuditLog, SystemSetting,
 ];
@@ -420,6 +439,7 @@ export interface UserRecord {
   rejectedReason: string | null;
   approvedById: string | null;
   approvedAt: Date | null;
+  activeSession?: { sessionId: string; deviceId: string; lastSeenAt: Date } | null;
   createdAt: Date;
   updatedAt: Date;
 }
