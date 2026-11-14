@@ -40,6 +40,7 @@ export async function submitMembership(input: z.infer<typeof membershipSubmitSch
     taluk: input.taluk,
     phoneNormalized: normalizePhone(input.phone),
     emailNormalized: normalizeEmail(input.email),
+    submittedByUserId: actor.id ?? null,
     status: 'SUBMITTED',
   })).toObject());
   await writeAudit({ actorUserId: actor.id ?? null, action: 'membership.submit', entityType: 'membership_application', entityId: row.id, requestId: actor.requestId, ip: actor.ip });
@@ -54,6 +55,7 @@ export async function submitTraining(input: z.infer<typeof trainingSubmitSchema>
     topic: input.topic,
     mode: input.mode,
     notes: input.notes ?? null,
+    submittedByUserId: actor.id ?? null,
     status: 'REGISTERED',
   })).toObject());
   await writeAudit({ actorUserId: actor.id ?? null, action: 'training.submit', entityType: 'training_registration', entityId: row.id, requestId: actor.requestId, ip: actor.ip });

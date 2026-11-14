@@ -21,8 +21,8 @@ router.get(
     // training forms have no user column, so they are matched on the operator's own mobile number.
     const [insurance, membership, training, grievances] = await Promise.all([
       InsuranceRequest.find({ submittedByUserId: userId }).sort({ createdAt: -1 }).limit(TAKE).select('customerName policyType status createdAt updatedAt').lean(),
-      MembershipApplication.find({ phoneNormalized: phone }).sort({ createdAt: -1 }).limit(TAKE).select('operatorName centreName status createdAt updatedAt').lean(),
-      TrainingRegistration.find({ phoneNormalized: phone }).sort({ createdAt: -1 }).limit(TAKE).select('topic mode status createdAt updatedAt').lean(),
+      MembershipApplication.find({ $or: [{ submittedByUserId: userId }, { phoneNormalized: phone }] }).sort({ createdAt: -1 }).limit(TAKE).select('operatorName centreName status createdAt updatedAt').lean(),
+      TrainingRegistration.find({ $or: [{ submittedByUserId: userId }, { phoneNormalized: phone }] }).sort({ createdAt: -1 }).limit(TAKE).select('topic mode status createdAt updatedAt').lean(),
       Grievance.find({ $or: [{ submittedByUserId: userId }, { phoneNormalized: phone }] }).sort({ createdAt: -1 }).limit(TAKE).select('ticketCode category status resolutionNote resolvedAt createdAt updatedAt').lean(),
     ]);
     res.json(toPlain({ insurance, membership, training, grievances }));

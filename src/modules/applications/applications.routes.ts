@@ -1,6 +1,7 @@
 // applications.routes.ts — public submit (insurance/membership/training/grievance) + admin list/status.
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
+import { AppError } from '../../common/errors/app-error';
 import { asyncHandler } from '../../middleware/async-handler';
 import { requirePermission } from '../../middleware/require-role';
 import { validate, valid } from '../../middleware/validate';
@@ -18,13 +19,30 @@ const actorOf = (req: import('express').Request) => ({ id: req.user?.id, request
 const idParam = z.object({ id: z.string().uuid() });
 
 // ── Public submissions (a logged-in user is linked when present) ──
-router.post('/applications/insurance', publicSubmitRateLimit, validate(insuranceSubmitSchema), asyncHandler(async (req, res) =>
+// All four application forms: logged-in, ACTIVE operators only (council decision, Nov 2026).
+// Every submission is linked to the operator's account so it shows under "My applications".
+function requireOperator(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) {
+    return next(
+      req.sessionEnded
+        ? new AppError(401, 'SESSION_ENDED', 'You were signed out. Please log in again to apply.')
+        : new AppError(401, 'LOGIN_REQUIRED', 'Please log in with your operator account to submit an application.'),
+    );
+  }
+  if (req.user.accountStatus !== 'ACTIVE') return next(AppError.forbidden('Your account is not active'));
+  if (req.user.role !== 'USER') {
+    return next(new AppError(403, 'OPERATORS_ONLY', 'Applications are submitted from operator accounts, not staff accounts.'));
+  }
+  next();
+}
+
+router.post('/applications/insurance', requireOperator, publicSubmitRateLimit, validate(insuranceSubmitSchema), asyncHandler(async (req, res) =>
   res.status(201).json(await svc.submitInsurance(valid(req), actorOf(req)))));
-router.post('/applications/membership', publicSubmitRateLimit, validate(membershipSubmitSchema), asyncHandler(async (req, res) =>
+router.post('/applications/membership', requireOperator, publicSubmitRateLimit, validate(membershipSubmitSchema), asyncHandler(async (req, res) =>
   res.status(201).json(await svc.submitMembership(valid(req), actorOf(req)))));
-router.post('/applications/training', publicSubmitRateLimit, validate(trainingSubmitSchema), asyncHandler(async (req, res) =>
+router.post('/applications/training', requireOperator, publicSubmitRateLimit, validate(trainingSubmitSchema), asyncHandler(async (req, res) =>
   res.status(201).json(await svc.submitTraining(valid(req), actorOf(req)))));
-router.post('/applications/grievance', publicSubmitRateLimit, validate(grievanceSubmitSchema), asyncHandler(async (req, res) =>
+router.post('/applications/grievance', requireOperator, publicSubmitRateLimit, validate(grievanceSubmitSchema), asyncHandler(async (req, res) =>
   res.status(201).json(await svc.submitGrievance(valid(req), actorOf(req)))));
 
 // ── Admin list + status ──

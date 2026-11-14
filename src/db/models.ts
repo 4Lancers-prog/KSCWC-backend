@@ -315,6 +315,7 @@ const MembershipApplicationSchema = new Schema(
     taluk: { type: String, required: true },
     phoneNormalized: { type: String, required: true },
     emailNormalized: str,
+    submittedByUserId: str,
     status: appStatus('SUBMITTED'),
     reviewedById: str,
   },
@@ -322,6 +323,7 @@ const MembershipApplicationSchema = new Schema(
 );
 MembershipApplicationSchema.index({ status: 1, createdAt: -1 });
 MembershipApplicationSchema.index({ phoneNormalized: 1 });
+MembershipApplicationSchema.index({ submittedByUserId: 1, createdAt: -1 });
 
 const TrainingRegistrationSchema = new Schema(
   {
@@ -331,12 +333,14 @@ const TrainingRegistrationSchema = new Schema(
     topic: { type: String, required: true },
     mode: { type: String, required: true },
     notes: str,
+    submittedByUserId: str,
     status: appStatus('REGISTERED'),
   },
   ts,
 );
 TrainingRegistrationSchema.index({ status: 1, createdAt: -1 });
 TrainingRegistrationSchema.index({ phoneNormalized: 1 });
+TrainingRegistrationSchema.index({ submittedByUserId: 1, createdAt: -1 });
 
 const GrievanceSchema = new Schema(
   {
