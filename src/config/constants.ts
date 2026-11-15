@@ -13,7 +13,5 @@ export const GLOBAL_RATE_WINDOW_MS = 1000 * 60; // per minute
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 
-export const FID_TEMPLATE_VERSION = 'v1';
-
 // A same owner + same mobile + same service within this window prompts a duplicate confirmation.
 export const DUPLICATE_WINDOW_MS = 1000 * 60 * 60 * 24; // 24h

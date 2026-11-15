@@ -51,4 +51,31 @@ describe('government portal links', () => {
     expect(items.every((l) => l.url.startsWith('https://'))).toBe(true);
     expect(items[0]!.featured).toBe(true); // featured portals come first
   });
+
+  it('admin can add, show and remove a portal logo; fake images are refused; visitors can see it', async () => {
+    const { agent: admin } = await loginAs(app, { phone: '9000000055', role: 'ADMIN' });
+    const link = (await post(admin, '/api/v1/admin/government-links', { title: 'Seva Sindhu', url: 'https://sevasindhu.karnataka.gov.in' })).body.link;
+    // a real 1x1 PNG
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const fake = await admin.agent.post(`/api/v1/admin/government-links/${link.id}/image`).set('x-csrf-token', admin.csrf)
+      .attach('image', Buffer.from('not really an image'), { filename: 'x.png', contentType: 'image/png' });
+    expect(fake.status).toBe(400);
+    const up = await admin.agent.post(`/api/v1/admin/government-links/${link.id}/image`).set('x-csrf-token', admin.csrf)
+      .attach('image', png, { filename: 'logo.png', contentType: 'image/png' });
+    expect(up.status).toBe(200);
+    expect(up.body.link.imageUrl).toMatch(/^\/api\/v1\/public\/government-links\/.+\/image\?v=\d+$/);
+    expect(JSON.stringify(up.body)).not.toContain('govlinks/'); // storage key never exposed
+
+    const visitor = await makeAgent(app);
+    const list = (await visitor.agent.get('/api/v1/public/government-links')).body.items;
+    expect(list[0].imageUrl).toBe(up.body.link.imageUrl);
+    expect(list[0].url).toBeNull(); // still locked for visitors
+    const img = await visitor.agent.get(up.body.link.imageUrl);
+    expect(img.status).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+
+    const rm = await admin.agent.delete(`/api/v1/admin/government-links/${link.id}/image`).set('x-csrf-token', admin.csrf);
+    expect(rm.body.link.imageUrl).toBeNull();
+    expect((await visitor.agent.get(up.body.link.imageUrl)).status).toBe(404);
+  });
 });

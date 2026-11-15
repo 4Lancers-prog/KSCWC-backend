@@ -193,26 +193,6 @@ ManualTopupRequestSchema.index({ userId: 1, createdAt: -1 });
 ManualTopupRequestSchema.index({ walletTransactionId: 1 }, { unique: true, partialFilterExpression: { walletTransactionId: { $type: 'string' } } });
 ManualTopupRequestSchema.virtual('user', { ref: 'User', localField: 'userId', foreignField: '_id', justOne: true });
 
-// ── FID ──
-const FidGenerationSchema = new Schema(
-  {
-    _id: id,
-    userId: { ...ref('User'), required: true },
-    customerId: str,
-    templateVersion: { type: String, required: true },
-    idempotencyKey: { type: String, required: true, unique: true, maxlength: 160 },
-    status: { type: String, enum: ['QUEUED', 'PROCESSING', 'SUCCEEDED', 'FAILED'], default: 'QUEUED' },
-    chargePaise: { ...money, default: 500 },
-    walletTransactionId: str,
-    fileKey: str,
-    failureCode: str,
-    completedAt: date,
-  },
-  createdOnly,
-);
-FidGenerationSchema.index({ userId: 1, createdAt: -1 });
-FidGenerationSchema.index({ walletTransactionId: 1 }, { unique: true, partialFilterExpression: { walletTransactionId: { $type: 'string' } } });
-
 // ── Public content ──
 const AnnouncementSchema = new Schema(
   {
@@ -263,7 +243,9 @@ const GovernmentLinkSchema = new Schema(
     category: { type: String, enum: GOV_LINK_CATEGORIES, default: 'OTHER' },
     // Shown in the "Government service portals" section of the operator dashboard.
     featured: { type: Boolean, default: false },
+    // Optional logo/photo shown on the portal tile (stored privately, served by the API).
     imageKey: str,
+    imageMime: str,
     sortOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
     createdById: str,
@@ -412,7 +394,6 @@ export const CustomerStatusHistory = model('CustomerStatusHistory', CustomerStat
 export const WalletAccount = model('WalletAccount', WalletAccountSchema, 'wallet_accounts');
 export const WalletTransaction = model('WalletTransaction', WalletTransactionSchema, 'wallet_transactions');
 export const ManualTopupRequest = model('ManualTopupRequest', ManualTopupRequestSchema, 'manual_topup_requests');
-export const FidGeneration = model('FidGeneration', FidGenerationSchema, 'fid_generations');
 export const Announcement = model('Announcement', AnnouncementSchema, 'announcements');
 export const CommitteeMember = model('CommitteeMember', CommitteeMemberSchema, 'committee_members');
 export const GovernmentLink = model('GovernmentLink', GovernmentLinkSchema, 'government_links');
@@ -427,7 +408,7 @@ export const SystemSetting = model('SystemSetting', SystemSettingSchema, 'system
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ALL_MODELS: mongoose.Model<any>[] = [
   User, UserDevice, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
-  ManualTopupRequest, FidGeneration, Announcement, CommitteeMember, GovernmentLink, DocumentModel,
+  ManualTopupRequest, Announcement, CommitteeMember, GovernmentLink, DocumentModel,
   InsuranceRequest, MembershipApplication, TrainingRegistration, Grievance, AuditLog, SystemSetting,
 ];
 

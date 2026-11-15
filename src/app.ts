@@ -25,7 +25,6 @@ import customersRoutes from './modules/customers/customers.routes';
 import reportsRoutes from './modules/reports/reports.routes';
 import walletRoutes from './modules/wallet/wallet.routes';
 import manualTopupRoutes from './modules/manual-topup/manual-topup.routes';
-import fidRoutes from './modules/fid/fid.routes';
 import announcementsRoutes from './modules/announcements/announcements.routes';
 import committeesRoutes from './modules/committees/committees.routes';
 import governmentLinksRoutes from './modules/government-links/government-links.routes';
@@ -77,7 +76,6 @@ export function buildApp(): Express {
   app.use('/api/v1', reportsRoutes);
   app.use('/api/v1', walletRoutes);
   app.use('/api/v1', manualTopupRoutes);
-  app.use('/api/v1', fidRoutes);
   app.use('/api/v1', announcementsRoutes);
   app.use('/api/v1', committeesRoutes);
   app.use('/api/v1', governmentLinksRoutes);

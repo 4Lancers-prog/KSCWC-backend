@@ -2,7 +2,8 @@
 
 Node 22 + TypeScript + Express modular monolith. **MongoDB** (Atlas in production) is the source
 of truth. Owns all business rules: auth/RBAC, customers, ledger-backed wallet with **manual UPI
-top-ups verified by an admin**, FID PDF generation (₹5-once), admin content, audit logs.
+top-ups verified by an admin**, government service portal links, admin content, audit logs.
+(FID card generation runs on a separate site; add it as a portal link in Admin → ಕೊಂಡಿಗಳು.)
 
 ## Quick start with MongoDB Atlas (free)
 1. Create a free account at mongodb.com/atlas → **Create cluster** → choose **M0 (Free)**.
@@ -36,12 +37,8 @@ the wallet is credited exactly once. A UTR can only be used once. See `docs/MANU
 Integration tests need a **separate** test database on a replica set:
 `TEST_DATABASE_URL=mongodb://127.0.0.1:27017/kscwc_test?replicaSet=rs0` (or an Atlas test DB), then `npm test`.
 
-## FID PDF prerequisites
-- Install the Chromium Playwright uses once: `npx playwright install chromium`.
-- Kannada in the PDF: drop a Noto Sans Kannada TTF at `assets/fonts/NotoSansKannada-Regular.ttf`
-  (OFL). Without it the renderer falls back to system fonts and Kannada may not shape correctly.
-- Files (PDFs, QR, screenshots, documents) are stored under `./storage/private/` (override with
-  `STORAGE_DIR`), or in Supabase Storage when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set
-  (file storage only — the database is MongoDB).
+## Files
+Uploads (UPI QR, payment screenshots, documents, portal logos) are stored under `./storage/private/`
+(override with `STORAGE_DIR`), or in Supabase Storage when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set.
 
 See `docs/` for API, database and security references.

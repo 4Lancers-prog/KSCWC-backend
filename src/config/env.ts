@@ -46,7 +46,6 @@ const EnvSchema = z.object({
 
   SENTRY_DSN: z.string().optional().default(''),
   DEFAULT_TIMEZONE: z.string().default('Asia/Kolkata'),
-  FID_GENERATION_PRICE_PAISE: z.coerce.number().int().positive().default(500),
   WALLET_TOPUP_MIN_PAISE: z.coerce.number().int().positive().default(1000),
   WALLET_TOPUP_MAX_PAISE: z.coerce.number().int().positive().default(10_000_000),
   MAX_UPLOAD_SIZE_BYTES: z.coerce.number().int().positive().default(5_242_880),
