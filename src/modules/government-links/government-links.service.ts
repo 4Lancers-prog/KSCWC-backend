@@ -23,6 +23,7 @@ export async function createLink(input: CreateInput, actor: Actor) {
   assertSafe(input.url);
   const created = await repo.create({
     title: input.title, url: input.url, description: input.description ?? null,
+    category: input.category, featured: input.featured,
     sortOrder: input.sortOrder, isActive: input.isActive, createdById: actor.id,
   });
   await writeAudit({ actorUserId: actor.id, action: 'govlink.create', entityType: 'government_link', entityId: created.id, requestId: actor.requestId, ip: actor.ip });

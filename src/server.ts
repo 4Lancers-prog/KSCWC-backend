@@ -2,6 +2,7 @@
 import { env } from './config/env';
 import { logger } from './lib/logger';
 import { connectDb, disconnectDb } from './lib/db';
+import { ensureDefaultGovLinks } from './modules/government-links/default-links';
 import { buildApp } from './app';
 import { startJobs } from './jobs';
 import { storageBackendName } from './lib/storage';
@@ -10,6 +11,7 @@ import { initSentry } from './lib/sentry';
 async function main(): Promise<void> {
   initSentry();
   await connectDb(); // fail fast if MongoDB is unreachable
+  await ensureDefaultGovLinks().catch((e) => logger.warn({ err: e }, 'could not load default government links'));
   const app = buildApp();
   const server = app.listen(env.API_PORT, () => {
     logger.info(`KSCWC API listening on http://localhost:${env.API_PORT} (${env.NODE_ENV}); storage=${storageBackendName}`);

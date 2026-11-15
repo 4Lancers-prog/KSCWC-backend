@@ -251,11 +251,18 @@ const CommitteeMemberSchema = new Schema(
 );
 CommitteeMemberSchema.index({ committeeType: 1, district: 1, sortOrder: 1 });
 
+export const GOV_LINK_CATEGORIES = ['STATE', 'CENTRAL', 'OTHER'] as const;
 const GovernmentLinkSchema = new Schema(
   {
     _id: id,
     title: { type: String, required: true, maxlength: 200 },
+    // The portal address (https only, validated in the service). Was missing after the move to
+    // MongoDB, which silently dropped it — links saved then have no address and are hidden.
+    url: { type: String, required: true, maxlength: 500 },
     description: str,
+    category: { type: String, enum: GOV_LINK_CATEGORIES, default: 'OTHER' },
+    // Shown in the "Government service portals" section of the operator dashboard.
+    featured: { type: Boolean, default: false },
     imageKey: str,
     sortOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },

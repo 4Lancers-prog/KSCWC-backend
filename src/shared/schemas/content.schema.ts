@@ -36,6 +36,8 @@ export const govLinkCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   url: z.string().trim().url(), // https validated in the service
   description: z.string().trim().max(1000).optional(),
+  category: z.enum(['STATE', 'CENTRAL', 'OTHER']).default('OTHER'),
+  featured: z.boolean().default(false),
   sortOrder: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
