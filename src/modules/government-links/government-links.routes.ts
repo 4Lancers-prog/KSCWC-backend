@@ -11,7 +11,13 @@ const router = Router();
 const actorOf = (req: import('express').Request) => ({ id: req.user!.id, requestId: req.requestId, ip: req.ip });
 const idParam = z.object({ id: z.string().uuid() });
 
-router.get('/public/government-links', asyncHandler(async (_req, res) => res.json({ items: await svc.listPublic() })));
+// Visitors see the list (names, descriptions) but NOT the addresses — opening a portal needs a
+// login. Logged-in users get the addresses. The response depends on the session, so never cache it.
+router.get('/public/government-links', asyncHandler(async (req, res) => {
+  const items = (await svc.listPublic()) as Array<Record<string, unknown>>;
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ items: req.user ? items : items.map((l) => ({ ...l, url: null, locked: true })) });
+}));
 router.get('/admin/government-links', requirePermission('links:manage'), asyncHandler(async (_req, res) => res.json({ items: await svc.listAdmin() })));
 router.post('/admin/government-links', requirePermission('links:manage'), validate(govLinkCreateSchema),
   asyncHandler(async (req, res) => res.status(201).json({ link: await svc.createLink(valid(req), actorOf(req)) })));

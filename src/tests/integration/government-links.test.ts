@@ -21,10 +21,18 @@ describe('government portal links', () => {
       title: 'ಸೇವಾ ಸಿಂಧು · Seva Sindhu', url: 'https://sevasindhu.karnataka.gov.in', category: 'STATE', featured: true,
     });
     expect(res.status).toBe(201);
+    // logged in → gets the address
+    const { agent: op } = await loginAs(app, { phone: '9845000011' });
+    const mine = await op.agent.get('/api/v1/public/government-links');
+    expect(mine.body.items).toHaveLength(1);
+    expect(mine.body.items[0]).toMatchObject({ url: 'https://sevasindhu.karnataka.gov.in', category: 'STATE', featured: true });
+    // visitor → sees the portal, but no address (must log in to open)
     const visitor = await makeAgent(app);
     const pub = await visitor.agent.get('/api/v1/public/government-links');
     expect(pub.body.items).toHaveLength(1);
-    expect(pub.body.items[0]).toMatchObject({ url: 'https://sevasindhu.karnataka.gov.in', category: 'STATE', featured: true });
+    expect(pub.body.items[0]).toMatchObject({ title: 'ಸೇವಾ ಸಿಂಧು · Seva Sindhu', url: null, locked: true });
+    expect(JSON.stringify(pub.body)).not.toContain('sevasindhu.karnataka.gov.in');
+    expect(pub.headers['cache-control']).toContain('no-store');
   });
 
   it('refuses non-https addresses', async () => {
@@ -37,8 +45,8 @@ describe('government portal links', () => {
     await GovernmentLink.collection.insertOne({ _id: 'old-row' as never, title: 'old, no url', isActive: true, sortOrder: 0 });
     expect(await ensureDefaultGovLinks()).toBe(DEFAULT_GOV_LINKS.length);
     expect(await ensureDefaultGovLinks()).toBe(0); // second start: nothing added
-    const visitor = await makeAgent(app);
-    const items = (await visitor.agent.get('/api/v1/public/government-links')).body.items as { url: string; featured: boolean }[];
+    const { agent: op } = await loginAs(app, { phone: '9845000012' });
+    const items = (await op.agent.get('/api/v1/public/government-links')).body.items as { url: string; featured: boolean }[];
     expect(items).toHaveLength(DEFAULT_GOV_LINKS.length);
     expect(items.every((l) => l.url.startsWith('https://'))).toBe(true);
     expect(items[0]!.featured).toBe(true); // featured portals come first
