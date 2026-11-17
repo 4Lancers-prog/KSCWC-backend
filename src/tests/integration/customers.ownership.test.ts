@@ -114,6 +114,6 @@ describe('report totals (AC-05)', () => {
     const csv = await a.agent.get('/api/v1/reports/export.csv');
     expect(csv.status).toBe(200);
     expect(csv.headers['content-type']).toContain('text/csv');
-    expect(csv.text).toContain('Customer,Mobile,Service');
+    expect(csv.text).toContain('Customer,Mobile,Aadhaar (masked),PAN (masked),Service');
   });
 });

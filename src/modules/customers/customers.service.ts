@@ -1,6 +1,7 @@
 // customers.service.ts — customer business logic with ownership scoping, status history, audit.
 import { Service } from '../../db/models';
 import { connectDb, withTransaction } from '../../lib/db';
+import { protectAadhaar, protectPan } from '../../lib/identity';
 import { AppError } from '../../common/errors/app-error';
 import { normalizePhone, cleanText } from '../../common/utils/normalize';
 import { resolvePage, paginate, type PageParams } from '../../common/utils/pagination';
@@ -64,6 +65,8 @@ export async function createCustomer(input: CustomerCreateInput, actor: Requeste
         feePaise: input.feePaise ?? null,
         status: input.status ?? 'PENDING',
         notes: input.notes ?? null,
+        ...(input.aadhaar ? protectAadhaar(input.aadhaar) : {}),
+        ...(input.pan ? protectPan(input.pan) : {}),
         createdById: actor.id,
         updatedById: actor.id,
       },
@@ -133,6 +136,10 @@ export async function updateCustomer(id: string, input: CustomerUpdateInput, act
     data.referenceCode = input.referenceCode ? cleanText(input.referenceCode) : null;
   if (input.feePaise !== undefined) data.feePaise = input.feePaise;
   if (input.notes !== undefined) data.notes = input.notes;
+  if (input.aadhaar) Object.assign(data, protectAadhaar(input.aadhaar));
+  else if (input.clearAadhaar) Object.assign(data, { aadhaarEnc: null, aadhaarLast4: null, aadhaarHash: null });
+  if (input.pan) Object.assign(data, protectPan(input.pan));
+  else if (input.clearPan) Object.assign(data, { panEnc: null, panMasked: null, panHash: null });
 
   const updated = await repo.update(id, data);
   await writeAudit({

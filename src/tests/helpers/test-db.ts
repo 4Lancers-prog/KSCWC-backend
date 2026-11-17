@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import request from 'supertest';
 import argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
+import { verhoeffValid } from '../../lib/identity';
 import mongoose from 'mongoose';
 import { ALL_MODELS, Service, User, WalletAccount } from '../../db/models';
 import { connectDb, toPlain } from '../../lib/db';
@@ -41,7 +42,19 @@ export async function makeAgent(app: Express): Promise<Agent> {
 }
 
 /** POST helper that includes the CSRF header. */
+/** A random, checksum-valid Aadhaar number (tests only). */
+export function testAadhaar(): string {
+  const first11 = String(2 + Math.floor(Math.random() * 8)) + String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+  for (let d = 0; d <= 9; d++) if (verhoeffValid(first11 + d)) return first11 + d;
+  return testAadhaar();
+}
+export const testPan = () => 'ABCP' + String.fromCharCode(65 + Math.floor(Math.random() * 26)) + String(Math.floor(Math.random() * 1e4)).padStart(4, '0') + 'K';
+
 export function post(a: Agent, path: string, body?: object | string) {
+  // like a person filling the sign-up form: registrations include Aadhaar + PAN unless a test sets them
+  if (path === '/api/v1/auth/register' && body && typeof body === 'object' && !('aadhaar' in body)) {
+    body = { ...body, aadhaar: testAadhaar(), pan: testPan() };
+  }
   if (path === '/api/v1/auth/login' && body && typeof body === 'object' && !('deviceId' in body)) {
     body = { ...body, deviceId: a.deviceId };
   }

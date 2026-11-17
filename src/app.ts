@@ -11,6 +11,7 @@ import { csrfProtection } from './middleware/csrf';
 import { enforceMfaSetup } from './middleware/enforce-mfa-setup';
 import { globalRateLimit } from './middleware/rate-limit';
 import { errorHandler } from './middleware/error-handler';
+import { API_VERSION } from './config/version';
 import { notFound } from './middleware/not-found';
 import { asyncHandler } from './middleware/async-handler';
 import mongoose from 'mongoose';
@@ -57,6 +58,8 @@ export function buildApp(): Express {
 
   // health
   app.get('/health/live', (_req, res) => res.json({ status: 'ok' }));
+  // which server version is running (the website compares it with what it needs)
+  app.get('/api/v1/version', (_req, res) => res.set('Cache-Control', 'no-store').json({ api: API_VERSION }));
   app.get(
     '/health/ready',
     asyncHandler(async (_req, res) => {

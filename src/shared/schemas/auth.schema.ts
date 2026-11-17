@@ -1,5 +1,6 @@
 // auth.schema.ts — registration, login, password reset, MFA schemas.
 import { z } from 'zod';
+import { aadhaarSchema, panSchema } from '../../lib/identity';
 import { emailSchema, nameSchema, passwordSchema, phoneSchema } from './common.schema';
 
 export const registerSchema = z.object({
@@ -11,6 +12,8 @@ export const registerSchema = z.object({
   cscId: z.string().trim().max(80).optional(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
   dob: z.coerce.date().optional(),
+  aadhaar: aadhaarSchema,
+  pan: panSchema,
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 

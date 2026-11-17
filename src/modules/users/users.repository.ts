@@ -1,6 +1,7 @@
 // users.repository.ts — admin user listing + status updates.
 import { User } from '../../db/models';
 import { connectDb, containsRegex, toPlain } from '../../lib/db';
+import { maskAadhaar, logoUrlFor } from '../../lib/identity';
 import { skip, type PageParams } from '../../common/utils/pagination';
 import type { AccountStatus } from '../../shared/constants/account-status';
 import type { Role } from '../../shared/constants/roles';
@@ -22,13 +23,22 @@ export interface SafeUser {
   rejectedReason: string | null;
   approvedAt: Date | null;
   createdAt: Date;
+  aadhaarMasked: string | null;
+  panMasked: string | null;
+  logoUrl: string | null;
 }
 
-const SAFE_SELECT = 'fullName phoneNormalized emailNormalized role accountStatus centreName cscId rejectedReason approvedAt createdAt';
+const SAFE_SELECT = 'fullName phoneNormalized emailNormalized role accountStatus centreName cscId rejectedReason approvedAt createdAt updatedAt aadhaarLast4 panMasked logoKey';
 const safe = (u: unknown): SafeUser | null => {
   if (!u) return null;
-  const p = toPlain<SafeUser>(u);
-  return { ...p, emailNormalized: p.emailNormalized ?? null };
+  const { aadhaarLast4, logoKey, updatedAt: _u, ...p } = toPlain<SafeUser & { aadhaarLast4?: string; logoKey?: string; updatedAt?: Date }>(u);
+  return {
+    ...p,
+    emailNormalized: p.emailNormalized ?? null,
+    aadhaarMasked: maskAadhaar(aadhaarLast4),
+    panMasked: p.panMasked ?? null,
+    logoUrl: logoUrlFor(p.id, logoKey),
+  };
 };
 
 export async function listUsers(filter: UserFilter, page: PageParams) {

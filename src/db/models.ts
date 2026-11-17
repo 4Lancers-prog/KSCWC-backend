@@ -50,6 +50,16 @@ const UserSchema = new Schema(
     rejectedReason: str,
     approvedById: optRef('User'),
     approvedAt: date,
+    // Aadhaar/PAN: encrypted + masked (see lib/identity.ts); never stored or returned in full
+    aadhaarEnc: str,
+    aadhaarLast4: str,
+    aadhaarHash: str,
+    panEnc: str,
+    panMasked: str,
+    panHash: str,
+    // centre logo (optional)
+    logoKey: str,
+    logoMime: str,
     // Operators: the ONE login currently allowed (see modules/devices/device-policy.ts).
     activeSession: {
       type: new Schema({ sessionId: String, deviceId: String, lastSeenAt: Date }, { _id: false }),
@@ -58,6 +68,7 @@ const UserSchema = new Schema(
   },
   ts,
 );
+UserSchema.index({ aadhaarHash: 1 }, { unique: true, partialFilterExpression: { aadhaarHash: { $type: 'string' } } });
 UserSchema.index({ emailNormalized: 1 }, { unique: true, partialFilterExpression: { emailNormalized: { $type: 'string' } } });
 UserSchema.index({ accountStatus: 1, createdAt: -1 });
 
@@ -102,6 +113,13 @@ const ServiceSchema = new Schema(
 
 const CustomerSchema = new Schema(
   {
+    // Aadhaar/PAN: encrypted + masked (see lib/identity.ts); never stored or returned in full
+    aadhaarEnc: str,
+    aadhaarLast4: str,
+    aadhaarHash: str,
+    panEnc: str,
+    panMasked: str,
+    panHash: str,
     _id: id,
     ownerUserId: { ...ref('User'), required: true },
     serviceId: { ...ref('Service'), required: true },
@@ -120,6 +138,7 @@ const CustomerSchema = new Schema(
 CustomerSchema.index({ ownerUserId: 1, createdAt: -1 });
 CustomerSchema.index({ ownerUserId: 1, serviceId: 1, status: 1 });
 CustomerSchema.index({ ownerUserId: 1, mobileNormalized: 1 });
+CustomerSchema.index({ ownerUserId: 1, aadhaarHash: 1 });
 CustomerSchema.virtual('service', { ref: 'Service', localField: 'serviceId', foreignField: '_id', justOne: true });
 CustomerSchema.virtual('owner', { ref: 'User', localField: 'ownerUserId', foreignField: '_id', justOne: true });
 
@@ -460,6 +479,9 @@ export interface UserRecord {
   approvedById: string | null;
   approvedAt: Date | null;
   activeSession?: { sessionId: string; deviceId: string; lastSeenAt: Date } | null;
+  aadhaarLast4?: string | null;
+  panMasked?: string | null;
+  logoKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

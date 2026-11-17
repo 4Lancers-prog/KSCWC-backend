@@ -1,5 +1,6 @@
 // auth.routes.ts — /api/v1/auth/* routes.
 import { Router } from 'express';
+import multer from 'multer';
 import { asyncHandler } from '../../middleware/async-handler';
 import { validate, valid } from '../../middleware/validate';
 import { requireAuth } from '../../middleware/require-auth';
@@ -22,6 +23,7 @@ import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
 const router = Router();
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 const ctxOf = (req: import('express').Request) => ({ requestId: req.requestId, ip: req.ip });
 
 // Issue a CSRF token (SPA calls this on load, then echoes it in x-csrf-token).
@@ -33,9 +35,10 @@ router.get('/auth/csrf', (req, res) => {
 router.post(
   '/auth/register',
   publicSubmitRateLimit,
+  logoUpload.single('logo'), // optional centre logo sent with the form
   validate(registerSchema),
   asyncHandler(async (req, res) => {
-    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req));
+    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), req.file);
     res.status(201).json({ user, message: 'Registration received. An admin will review your account.' });
   }),
 );

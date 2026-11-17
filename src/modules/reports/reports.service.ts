@@ -37,10 +37,12 @@ export async function customerReport(filter: ReportFilter, requester: Requester)
 export async function exportCustomersCsv(filter: ReportFilter, requester: Requester): Promise<string> {
   const where = scopeWhere(filter, requester);
   const rows = await listAll(where);
-  const header = ['Customer', 'Mobile', 'Service', 'Reference', 'Fee (₹)', 'Status', 'Created'];
+  const header = ['Customer', 'Mobile', 'Aadhaar (masked)', 'PAN (masked)', 'Service', 'Reference', 'Fee (₹)', 'Status', 'Created'];
   const body = rows.map((c) => [
     c.fullName,
     c.mobileNormalized,
+    (c as { aadhaarMasked?: string | null }).aadhaarMasked ?? '',
+    (c as { panMasked?: string | null }).panMasked ?? '',
     c.service?.nameEn ?? c.service?.nameKn ?? '',
     c.referenceCode ?? '',
     c.feePaise != null ? formatPaisePlain(c.feePaise) : '',

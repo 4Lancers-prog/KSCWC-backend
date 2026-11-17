@@ -10,6 +10,10 @@ import { AppError } from '../../common/errors/app-error';
 import { normalizePhone, normalizeEmail, cleanText } from '../../common/utils/normalize';
 import { PASSWORD_RESET_TTL_MS } from '../../config/constants';
 import { checkOperatorLogin, claimActiveLogin } from '../devices/device-policy';
+import { protectAadhaar, protectPan, maskAadhaar, logoUrlFor } from '../../lib/identity';
+import { checkImage } from '../../lib/image-rules';
+import * as storage from '../../lib/storage';
+import { User as UserModel } from '../../db/models';
 import { isAdminRole } from '../../shared/constants/roles';
 import type { SessionUser } from '../../shared/types/api';
 import type { RegisterInput, LoginInput } from '../../shared/schemas/auth.schema';
@@ -32,6 +36,9 @@ export function toSessionUser(u: User): SessionUser {
     centreName: u.centreName,
     cscId: u.cscId,
     mfaEnabled: u.mfaEnabled,
+    aadhaarMasked: maskAadhaar(u.aadhaarLast4),
+    panMasked: u.panMasked ?? null,
+    logoUrl: logoUrlFor(u.id, u.logoKey),
   };
 }
 
@@ -40,13 +47,28 @@ interface Ctx {
   ip?: string | null;
 }
 
-export async function register(input: RegisterInput, ctx: Ctx): Promise<SessionUser> {
+/** Save a centre logo for a user (already checked by checkImage). */
+export async function setUserLogo(userId: string, file: { buffer: Buffer; mimetype: string; size: number }) {
+  const { ext, mime } = checkImage(file, 'Centre logo');
+  const key = `logos/${userId}-${Date.now()}.${ext}`;
+  await storage.putPrivate(key, file.buffer, mime);
+  await UserModel.updateOne({ _id: userId }, { $set: { logoKey: key, logoMime: mime } });
+}
+
+export async function register(input: RegisterInput, ctx: Ctx, logo?: { buffer: Buffer; mimetype: string; size: number }): Promise<SessionUser> {
+  if (logo) checkImage(logo, 'Centre logo'); // reject a bad logo before creating the account
   const phone = normalizePhone(input.phone);
   const email = normalizeEmail(input.email);
 
   if (await repo.findByPhone(phone)) {
     throw AppError.conflict('An account with this mobile number already exists', [
       { field: 'phone', message: 'Already registered' },
+    ]);
+  }
+  const aadhaar = protectAadhaar(input.aadhaar);
+  if (await UserModel.exists({ aadhaarHash: aadhaar.aadhaarHash })) {
+    throw AppError.conflict('An account with this Aadhaar number already exists', [
+      { field: 'aadhaar', message: 'ಈ ಆಧಾರ್‌ನೊಂದಿಗೆ ಖಾತೆ ಈಗಾಗಲೇ ಇದೆ · Already registered' },
     ]);
   }
   if (email && (await repo.findByEmail(email))) {
@@ -67,7 +89,10 @@ export async function register(input: RegisterInput, ctx: Ctx): Promise<SessionU
     dob: input.dob ?? null,
     accountStatus: 'PENDING_APPROVAL',
     role: 'USER',
+    ...aadhaar,
+    ...protectPan(input.pan),
   });
+  if (logo) await setUserLogo(user.id, logo);
 
   await writeAudit({
     actorUserId: user.id,
@@ -79,7 +104,8 @@ export async function register(input: RegisterInput, ctx: Ctx): Promise<SessionU
     after: { phone, status: user.accountStatus },
   });
 
-  return toSessionUser(user);
+  // re-read so the reply includes the logo just saved
+  return toSessionUser((await repo.findById(user.id)) ?? user);
 }
 
 export async function login(

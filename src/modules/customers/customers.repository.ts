@@ -2,6 +2,7 @@
 import type { ClientSession } from 'mongoose';
 import { Customer, CustomerStatusHistory } from '../../db/models';
 import { connectDb, containsRegex, toPlain } from '../../lib/db';
+import { maskAadhaar } from '../../lib/identity';
 import { skip, type PageParams } from '../../common/utils/pagination';
 import type { CustomerStatus } from '../../shared/constants/customer-status';
 
@@ -33,7 +34,13 @@ function withRelations(q: any): any {
     .populate({ path: 'service', select: 'code nameKn nameEn' })
     .populate({ path: 'owner', select: 'fullName phoneNormalized centreName' });
 }
-const plain = (c: unknown) => (c ? toPlain<CustomerRecord>(c) : null);
+// Never send encrypted identity data or fingerprints to the browser — only masked forms.
+const plain = (c: unknown) => {
+  if (!c) return null;
+  const { aadhaarEnc: _a, aadhaarHash: _h, panEnc: _p, panHash: _ph, aadhaarLast4, ...rest } =
+    toPlain<CustomerRecord & { aadhaarEnc?: string; aadhaarHash?: string; panEnc?: string; panHash?: string; aadhaarLast4?: string }>(c);
+  return { ...rest, aadhaarMasked: maskAadhaar(aadhaarLast4), panMasked: (rest as { panMasked?: string }).panMasked ?? null } as CustomerRecord;
+};
 
 export async function create(data: Omit<Partial<CustomerRecord>, 'id' | 'service' | 'owner'>, session?: ClientSession) {
   await connectDb();
