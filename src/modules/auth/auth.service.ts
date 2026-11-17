@@ -17,6 +17,8 @@ import { writeAudit } from '../audit/audit.service';
 import { encryptSecret, decryptSecret } from '../../lib/crypto';
 import * as repo from './auth.repository';
 
+const ADMIN_RESET_TTL_MS = 24 * 60 * 60 * 1000; // admin-made reset links: 24 hours
+
 const ARGON_OPTS = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 
 export function toSessionUser(u: User): SessionUser {
@@ -207,6 +209,40 @@ export async function resetPassword(tokenRaw: string, password: string, ctx: Ctx
     requestId: ctx.requestId,
     ip: ctx.ip,
   });
+}
+
+/**
+ * Admin-assisted reset (there is no SMS/email service): the admin creates a one-time link and
+ * sends it to the operator (WhatsApp/SMS from their own phone). Valid 24 hours, single use.
+ */
+export async function createAdminResetLink(userId: string, actor: { id: string; requestId?: string; ip?: string | null }) {
+  const user = await repo.findById(userId);
+  if (!user) throw AppError.notFound('User not found');
+  const raw = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+  const expiresAt = new Date(Date.now() + ADMIN_RESET_TTL_MS);
+  await repo.createPasswordReset(user.id, tokenHash, expiresAt);
+  await writeAudit({
+    actorUserId: actor.id, action: 'user.password_reset_link_created', entityType: 'user', entityId: user.id,
+    requestId: actor.requestId, ip: actor.ip,
+  });
+  const base = env.APP_BASE_URL.replace(/\/+$/, '');
+  return { link: `${base}/reset-password?token=${raw}`, expiresAt, phone: user.phoneNormalized, fullName: user.fullName };
+}
+
+/** Logged-in user changes their own password; other devices are signed out, this one stays. */
+export async function changePassword(
+  userId: string, currentSessionId: string, currentPassword: string, newPassword: string, ctx: Ctx,
+) {
+  const user = await repo.findById(userId);
+  if (!user) throw AppError.unauthorized();
+  if (!(await argon2.verify(user.passwordHash, currentPassword))) {
+    throw new AppError(400, 'WRONG_PASSWORD', 'Your current password is not correct', { fieldErrors: [{ field: 'currentPassword', message: 'Your current password is not correct' }] });
+  }
+  if (currentPassword === newPassword) throw AppError.badRequest('Choose a new password that is different from the current one');
+  await repo.updatePasswordHash(user.id, await argon2.hash(newPassword, ARGON_OPTS));
+  await repo.deleteUserSessions(user.id, currentSessionId);
+  await writeAudit({ actorUserId: user.id, action: 'user.password_changed', entityType: 'user', entityId: user.id, requestId: ctx.requestId, ip: ctx.ip });
 }
 
 /** Begin MFA enrolment: returns the otpauth URL + secret to show as a QR code. */

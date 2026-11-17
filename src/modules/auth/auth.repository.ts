@@ -66,6 +66,6 @@ export async function markResetUsed(id: string) {
 }
 
 /** Delete every stored session belonging to a user (e.g. after a password reset). */
-export function deleteUserSessions(userId: string) {
-  return deleteSessionsForUser(userId);
+export function deleteUserSessions(userId: string, exceptSessionId?: string) {
+  return deleteSessionsForUser(userId, exceptSessionId);
 }

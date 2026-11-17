@@ -35,10 +35,12 @@ describe('government portal links', () => {
     expect(pub.headers['cache-control']).toContain('no-store');
   });
 
-  it('refuses non-https addresses', async () => {
+  it('refuses unsafe addresses (http:// is upgraded to https:// instead)', async () => {
     const { agent: admin } = await loginAs(app, { phone: '9000000055', role: 'ADMIN' });
-    const res = await post(admin, '/api/v1/admin/government-links', { title: 'Fake', url: 'http://example.com' });
-    expect(res.status).toBe(400);
+    for (const url of ['ftp://files.example.com', 'javascript:alert(1)', 'data:text/html,hi']) {
+      const res = await post(admin, '/api/v1/admin/government-links', { title: 'Fake', url });
+      expect(res.status, url).toBe(400);
+    }
   });
 
   it('defaults load once when no working links exist, and old address-less rows stay hidden', async () => {
@@ -77,5 +79,31 @@ describe('government portal links', () => {
     const rm = await admin.agent.delete(`/api/v1/admin/government-links/${link.id}/image`).set('x-csrf-token', admin.csrf);
     expect(rm.body.link.imageUrl).toBeNull();
     expect((await visitor.agent.get(up.body.link.imageUrl)).status).toBe(404);
+  });
+
+  it('accepts addresses the way admins type them, and explains problems clearly', async () => {
+    const { agent: admin } = await loginAs(app, { phone: '9000000055', role: 'ADMIN' });
+    const add = (url: string, title = 'Kaveri') => post(admin, '/api/v1/admin/government-links', { title, url });
+    expect((await add('kaveri.karnataka.gov.in')).body.link.url).toBe('https://kaveri.karnataka.gov.in');
+    expect((await add('www.passportindia.gov.in')).body.link.url).toBe('https://www.passportindia.gov.in');
+    expect((await add('http://ahara.kar.nic.in')).body.link.url).toBe('https://ahara.kar.nic.in');
+    expect((await add('  https://pmkisan.gov.in  ')).body.link.url).toBe('https://pmkisan.gov.in');
+    const noTitle = await add('https://pmkisan.gov.in', '');
+    expect(noTitle.status).toBe(400);
+    expect(JSON.stringify(noTitle.body.fieldErrors)).toContain('Enter a name for the portal');
+    const notAnAddress = await add('not an address');
+    expect(notAnAddress.status).toBe(400);
+    expect(JSON.stringify(notAnAddress.body.fieldErrors)).toContain('Enter a web address');
+  });
+
+  it('a too-large logo gets a clear message, not "Something went wrong"', async () => {
+    const { agent: admin } = await loginAs(app, { phone: '9000000055', role: 'ADMIN' });
+    const link = (await post(admin, '/api/v1/admin/government-links', { title: 'X', url: 'https://pmkisan.gov.in' })).body.link;
+    const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(3 * 1024 * 1024)]);
+    const res = await admin.agent.post(`/api/v1/admin/government-links/${link.id}/image`).set('x-csrf-token', admin.csrf)
+      .attach('image', big, { filename: 'photo.jpg', contentType: 'image/jpeg' });
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe('UPLOAD_ERROR');
+    expect(res.body.message).toContain('too large');
   });
 });

@@ -2,6 +2,7 @@
 import { connectDb, disconnectDb } from '../../lib/db';
 import { ALL_MODELS } from '../models';
 import { ensureDefaultGovLinks } from '../../modules/government-links/default-links';
+import { ensureDefaultCategories } from '../../modules/categories/categories.service';
 import { seedServices } from './services.seed';
 import { seedContent } from './content.seed';
 import { seedAdmin } from './admin.seed';
@@ -16,15 +17,17 @@ async function main(): Promise<void> {
   await seedServices();
   await seedContent();
   await seedAdmin();
+  const n = await ensureDefaultGovLinks();
+   
+  if (n) console.log(`✔ seeded ${n} government portal links`);
+  await ensureDefaultCategories();
 }
 
 main()
   .then(() => disconnectDb())
   .catch(async (err) => {
-    // eslint-disable-next-line no-console
+     
     console.error(err);
-    const n = await ensureDefaultGovLinks();
-  if (n) console.log(`✔ seeded ${n} government portal links`);
-  await disconnectDb();
+    await disconnectDb().catch(() => undefined);
     process.exit(1);
   });

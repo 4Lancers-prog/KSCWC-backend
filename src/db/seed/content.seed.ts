@@ -24,6 +24,6 @@ export async function seedContent(): Promise<void> {
         { committeeType: 'DISTRICT', name: 'ಜಿಲ್ಲಾ ಸಂಯೋಜಕರು', roleTitle: 'District Coordinator', district: 'Bengaluru Urban', sortOrder: 1 },
       ]);
   }
-  // eslint-disable-next-line no-console
+   
   console.log('✔ seeded demo content');
 }

@@ -7,7 +7,6 @@ import { requireAuth } from '../../middleware/require-auth';
 import { requirePermission } from '../../middleware/require-role';
 import { validate, valid } from '../../middleware/validate';
 import { env } from '../../config/env';
-import { AppError } from '../../common/errors/app-error';
 import {
   manualTopupCreateSchema,
   manualTopupListSchema,

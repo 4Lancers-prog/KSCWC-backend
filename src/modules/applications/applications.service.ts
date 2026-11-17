@@ -81,7 +81,7 @@ export async function submitGrievance(input: z.infer<typeof grievanceSubmitSchem
 // ── Admin: list + status ──
 type Kind = 'insurance' | 'membership' | 'training' | 'grievances';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const delegates: Record<Kind, Model<any>> = {
   insurance: InsuranceRequest,
   membership: MembershipApplication,

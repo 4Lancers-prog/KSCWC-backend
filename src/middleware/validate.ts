@@ -6,7 +6,7 @@ import { AppError } from '../common/errors/app-error';
 type Source = 'body' | 'query' | 'params';
 
 function toFieldErrors(err: z.ZodError) {
-  return err.errors.map((e) => ({ field: e.path.join('.') || '(root)', message: e.message }));
+  return err.issues.map((e) => ({ field: e.path.join('.') || '(root)', message: e.message }));
 }
 
 /** Returns middleware that validates one source and stores the parsed value on req.valid[source]. */
@@ -28,7 +28,7 @@ export function validate<T extends ZodTypeAny>(schema: T, source: Source = 'body
  * Zod middleware, so the generic defaults to `any` to keep call sites terse; pass an explicit
  * type argument (valid<MyInput>(req)) when you want the compiler to check the consumer.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function valid<T = any>(req: Request, source: Source = 'body'): T {
   return (req as Request & { valid?: Record<string, unknown> }).valid?.[source] as T;
 }

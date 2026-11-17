@@ -27,7 +27,7 @@ export interface CustomerRecord {
 export type CustomerFilter = Record<string, unknown>;
 
 // The API returns each customer with its service and owning operator embedded.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function withRelations(q: any): any {
   return q
     .populate({ path: 'service', select: 'code nameKn nameEn' })

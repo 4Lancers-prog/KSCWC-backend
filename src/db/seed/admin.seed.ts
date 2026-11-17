@@ -15,18 +15,18 @@ export async function seedAdmin(): Promise<void> {
 
   if (!password) {
     if (isProd) {
-      // eslint-disable-next-line no-console
+       
       console.error('✖ SEED_ADMIN_PASSWORD is required in production; skipping admin seed.');
       return;
     }
     password = crypto.randomBytes(12).toString('base64url');
-    // eslint-disable-next-line no-console
+     
     console.log(`\n⚠ Generated dev SUPER_ADMIN credentials:\n  phone: ${phone}\n  password: ${password}\n`);
   }
 
   const existing = await User.exists({ phoneNormalized: phone });
   if (existing) {
-    // eslint-disable-next-line no-console
+     
     console.log('✔ admin already exists; not modified');
     return;
   }
@@ -39,6 +39,6 @@ export async function seedAdmin(): Promise<void> {
     );
     await WalletAccount.create([{ userId: admin!._id }], { session });
   });
-  // eslint-disable-next-line no-console
+   
   console.log('✔ created SUPER_ADMIN');
 }

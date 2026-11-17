@@ -3,7 +3,7 @@ import type { Model } from 'mongoose';
 import { connectDb, toPlain } from './db';
 import { AppError } from '../common/errors/app-error';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type AnyModel = Model<any>;
 
 export function crud<T = Record<string, any>>(model: AnyModel) {

@@ -10,6 +10,7 @@ import { resolvePage, paginate } from '../../common/utils/pagination';
 import { AppError } from '../../common/errors/app-error';
 import * as users from './users.service';
 import * as devices from '../devices/device-policy';
+import { createAdminResetLink } from '../auth/auth.service';
 import { writeAudit } from '../audit/audit.service';
 
 const router = Router();
@@ -128,6 +129,16 @@ router.post(
       requestId: req.requestId, ip: req.ip,
     });
     res.json({ ok: true });
+  }),
+);
+
+// Admin-assisted password reset (no SMS/email service): a one-time link the admin sends to the operator.
+router.post(
+  '/admin/users/:id/password-reset-link',
+  requirePermission('users:approve'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    res.json(await createAdminResetLink(req.params.id!, { id: req.user!.id, requestId: req.requestId, ip: req.ip }));
   }),
 );
 

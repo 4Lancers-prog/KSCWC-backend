@@ -231,7 +231,27 @@ const CommitteeMemberSchema = new Schema(
 );
 CommitteeMemberSchema.index({ committeeType: 1, district: 1, sortOrder: 1 });
 
-export const GOV_LINK_CATEGORIES = ['STATE', 'CENTRAL', 'OTHER'] as const;
+export const GOV_LINK_CATEGORIES = ['STATE', 'CENTRAL', 'OTHER'] as const; // legacy, see Category
+
+// Admin-managed categories with one level of sub-categories, for portal links and templates.
+// DOCUMENTS = application forms, DRAFTS = drafts (affidavit/letter formats), LINKS = portal links
+export const CATEGORY_SCOPES = ['LINKS', 'DOCUMENTS', 'DRAFTS'] as const;
+export const DOCUMENT_KINDS = ['APPLICATION', 'DRAFT'] as const;
+const CategorySchema = new Schema(
+  {
+    _id: id,
+    scope: { type: String, enum: CATEGORY_SCOPES, required: true },
+    nameKn: { type: String, required: true, maxlength: 120 },
+    nameEn: { type: String, default: null, maxlength: 120 },
+    parentId: optRef('Category'), // null = top-level category; set = sub-category
+    sortOrder: { type: Number, default: 0 },
+    // legacy marker so old enum values / free-text labels map to the right category once
+    legacyKey: { type: String, default: null },
+  },
+  ts,
+);
+CategorySchema.index({ scope: 1, parentId: 1, sortOrder: 1 });
+
 const GovernmentLinkSchema = new Schema(
   {
     _id: id,
@@ -240,7 +260,8 @@ const GovernmentLinkSchema = new Schema(
     // MongoDB, which silently dropped it — links saved then have no address and are hidden.
     url: { type: String, required: true, maxlength: 500 },
     description: str,
-    category: { type: String, enum: GOV_LINK_CATEGORIES, default: 'OTHER' },
+    category: { type: String, enum: GOV_LINK_CATEGORIES, default: 'OTHER' }, // legacy
+    categoryId: optRef('Category'),
     // Shown in the "Government service portals" section of the operator dashboard.
     featured: { type: Boolean, default: false },
     // Optional logo/photo shown on the portal tile (stored privately, served by the API).
@@ -257,7 +278,13 @@ const DocumentSchema = new Schema(
   {
     _id: id,
     title: { type: String, required: true, maxlength: 200 },
-    category: str,
+    description: str,
+    kind: { type: String, enum: DOCUMENT_KINDS, default: 'APPLICATION' }, // application form or draft
+    category: str, // legacy free-text label (mapped to categoryId on startup)
+    categoryId: optRef('Category'),
+    // optional display image (cover/preview) shown next to the document
+    imageKey: str,
+    imageMime: str,
     fileKey: { type: String, required: true },
     originalFilename: { type: String, required: true },
     mimeType: { type: String, required: true },
@@ -386,6 +413,7 @@ function model<S extends Schema>(name: string, schema: S, collection: string) {
 }
 
 export const User = model('User', UserSchema, 'users');
+export const Category = model('Category', CategorySchema, 'categories');
 export const UserDevice = model('UserDevice', UserDeviceSchema, 'user_devices');
 export const PasswordResetToken = model('PasswordResetToken', PasswordResetTokenSchema, 'password_reset_tokens');
 export const Service = model('Service', ServiceSchema, 'services');
@@ -405,9 +433,9 @@ export const Grievance = model('Grievance', GrievanceSchema, 'grievances');
 export const AuditLog = model('AuditLog', AuditLogSchema, 'audit_logs');
 export const SystemSetting = model('SystemSetting', SystemSettingSchema, 'system_settings');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export const ALL_MODELS: mongoose.Model<any>[] = [
-  User, UserDevice, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
+  User, UserDevice, Category, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
   ManualTopupRequest, Announcement, CommitteeMember, GovernmentLink, DocumentModel,
   InsuranceRequest, MembershipApplication, TrainingRegistration, Grievance, AuditLog, SystemSetting,
 ];

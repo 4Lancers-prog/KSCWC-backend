@@ -32,11 +32,25 @@ export const committeeReorderSchema = z.object({
 });
 
 // ── Government links ──
+// Admins often paste "kaveri.karnataka.gov.in" or "www…" or an http:// address: make it https://.
+const portalUrl = z.preprocess(
+  (v) => {
+    if (typeof v !== 'string') return v;
+    let s = v.trim();
+    if (!s) return s;
+    if (/^http:\/\//i.test(s)) s = 'https://' + s.slice(7);
+    else if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'https://' + s.replace(/^\/+/, '');
+    return s;
+  },
+  z.string().url('Enter a web address, e.g. https://sevasindhu.karnataka.gov.in'),
+); // https is also enforced in the service
+
 export const govLinkCreateSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  url: z.string().trim().url(), // https validated in the service
+  title: z.string().trim().min(1, 'Enter a name for the portal').max(200),
+  url: portalUrl,
   description: z.string().trim().max(1000).optional(),
-  category: z.enum(['STATE', 'CENTRAL', 'OTHER']).default('OTHER'),
+  category: z.enum(['STATE', 'CENTRAL', 'OTHER']).optional(), // legacy; use categoryId
+  categoryId: z.string().uuid().nullable().optional(),
   featured: z.boolean().default(false),
   sortOrder: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
@@ -44,8 +58,18 @@ export const govLinkCreateSchema = z.object({
 export const govLinkUpdateSchema = govLinkCreateSchema.partial();
 
 // ── Documents (metadata; file comes via multipart) ──
+// visibility: PUBLIC = everyone; PRIVATE = logged-in operators/staff only ("members only")
 export const documentMetaSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  category: z.string().trim().max(120).optional(),
+  title: z.string().trim().min(1, 'Enter a title').max(200),
+  description: z.string().trim().max(500).optional(),
+  kind: z.enum(['APPLICATION', 'DRAFT']).default('APPLICATION'),
+  categoryId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   visibility: z.enum(['PUBLIC', 'PRIVATE']).default('PUBLIC'),
+});
+export const documentUpdateSchema = z.object({
+  title: z.string().trim().min(1, 'Enter a title').max(200).optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  kind: z.enum(['APPLICATION', 'DRAFT']).optional(),
+  categoryId: z.string().uuid().nullable().optional(),
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
 });

@@ -54,7 +54,7 @@ const EnvSchema = z.object({
 // Hosts like Railway/Render tell the app which port to use via PORT.
 const parsed = EnvSchema.safeParse({ ...process.env, API_PORT: process.env.API_PORT ?? process.env.PORT });
 if (!parsed.success) {
-  // eslint-disable-next-line no-console
+   
   console.error('❌ Invalid environment variables:\n', parsed.error.flatten().fieldErrors);
   process.exit(1);
 }

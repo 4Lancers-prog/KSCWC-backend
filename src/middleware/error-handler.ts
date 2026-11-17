@@ -2,6 +2,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import mongoose from 'mongoose';
+import multer from 'multer';
 import { duplicateKeyFields } from '../lib/db';
 import { AppError } from '../common/errors/app-error';
 import { logger } from '../lib/logger';
@@ -12,7 +13,7 @@ export function errorHandler(
   err: unknown,
   req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _next: NextFunction,
 ): void {
   let status = 500;
@@ -31,9 +32,17 @@ export function errorHandler(
     body = {
       code: 'BAD_REQUEST',
       message: 'Validation failed',
-      fieldErrors: err.errors.map((e) => ({ field: e.path.join('.'), message: e.message })),
+      fieldErrors: err.issues.map((e) => ({ field: e.path.join('.'), message: e.message })),
       requestId: req.requestId,
     };
+  } else if (err instanceof multer.MulterError) {
+    // file uploads: clear messages instead of a generic 500
+    status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const message =
+      err.code === 'LIMIT_FILE_SIZE' ? 'The file is too large. Please use a smaller image (up to 2 MB).'
+      : err.code === 'LIMIT_UNEXPECTED_FILE' ? 'Unexpected file field.'
+      : 'The file could not be uploaded.';
+    body = { code: 'UPLOAD_ERROR', message, requestId: req.requestId };
   } else if (duplicateKeyFields(err)) {
     // unique index violated (phone, email, UTR number, idempotency key, …)
     status = 409;

@@ -19,6 +19,6 @@ export async function seedServices(): Promise<void> {
       { upsert: true },
     );
   }
-  // eslint-disable-next-line no-console
+   
   console.log(`✔ seeded ${SERVICES.length} services`);
 }

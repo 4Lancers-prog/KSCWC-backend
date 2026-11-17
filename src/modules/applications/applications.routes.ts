@@ -16,7 +16,6 @@ import * as svc from './applications.service';
 
 const router = Router();
 const actorOf = (req: import('express').Request) => ({ id: req.user?.id, requestId: req.requestId, ip: req.ip });
-const idParam = z.object({ id: z.string().uuid() });
 
 // ── Public submissions (a logged-in user is linked when present) ──
 // All four application forms: logged-in, ACTIVE operators only (council decision, Nov 2026).

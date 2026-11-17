@@ -60,8 +60,9 @@ export async function setPaymentQr(
 
 export async function getPaymentQrPublic() {
   const qr = await readQr();
-  if (!qr) throw AppError.notFound('Payment QR is not configured yet');
-  return { upiId: qr.upiId, payeeName: qr.payeeName, note: qr.note ?? null, imageUrl: '/api/v1/payment-qr/image' };
+  // "not set up yet" is a normal state, not an error (avoids error noise on every wallet visit)
+  if (!qr) return { configured: false as const };
+  return { configured: true as const, upiId: qr.upiId, payeeName: qr.payeeName, note: qr.note ?? null, imageUrl: '/api/v1/payment-qr/image' };
 }
 
 export async function getPaymentQrImage() {

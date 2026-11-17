@@ -27,6 +27,11 @@ export const forgotPasswordSchema = z.object({
   phone: phoneSchema,
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Enter your current password').max(200),
+  newPassword: passwordSchema,
+});
+
 export const resetPasswordSchema = z.object({
   token: z.string().min(10),
   password: passwordSchema,

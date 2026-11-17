@@ -12,7 +12,7 @@ export const SESSION_COLLECTION = 'sessions';
 
 const store = MongoStore.create({
   // connect-mongo bundles its own copy of the driver types; the client object is compatible.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   clientPromise: connectDb().then(() => mongoose.connection.getClient() as any),
   collectionName: SESSION_COLLECTION,
   stringify: false,
@@ -37,9 +37,12 @@ export const sessionMiddleware = session({
 });
 
 /** Delete every session belonging to a user (password reset, suspension). */
-export async function deleteSessionsForUser(userId: string): Promise<number> {
+export async function deleteSessionsForUser(userId: string, exceptSessionId?: string): Promise<number> {
   await connectDb();
-  const res = await mongoose.connection.collection(SESSION_COLLECTION).deleteMany({ 'session.userId': userId });
+  const res = await mongoose.connection.collection(SESSION_COLLECTION).deleteMany({
+    'session.userId': userId,
+    ...(exceptSessionId ? { _id: { $ne: exceptSessionId as never } } : {}),
+  });
   return res.deletedCount;
 }
 

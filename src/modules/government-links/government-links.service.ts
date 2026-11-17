@@ -6,6 +6,7 @@ import { govLinkCreateSchema, govLinkUpdateSchema } from '../../shared/schemas/c
 import { writeAudit } from '../audit/audit.service';
 import * as repo from './government-links.repository';
 import * as storage from '../../lib/storage';
+import { assertInScope } from '../categories/categories.service';
 import { GovernmentLink } from '../../db/models';
 import { connectDb } from '../../lib/db';
 
@@ -23,10 +24,11 @@ export const listPublic = repo.listPublic;
 export const listAdmin = repo.listAdmin;
 
 export async function createLink(input: CreateInput, actor: Actor) {
+  await assertInScope(input.categoryId, 'LINKS');
   assertSafe(input.url);
   const created = await repo.create({
     title: input.title, url: input.url, description: input.description ?? null,
-    category: input.category, featured: input.featured,
+    categoryId: input.categoryId ?? null, category: input.category ?? 'OTHER', featured: input.featured,
     sortOrder: input.sortOrder, isActive: input.isActive, createdById: actor.id,
   });
   await writeAudit({ actorUserId: actor.id, action: 'govlink.create', entityType: 'government_link', entityId: created.id, requestId: actor.requestId, ip: actor.ip });
@@ -34,6 +36,7 @@ export async function createLink(input: CreateInput, actor: Actor) {
 }
 
 export async function updateLink(id: string, input: UpdateInput, actor: Actor) {
+  await assertInScope(input.categoryId, 'LINKS');
   if (!(await repo.findById(id))) throw AppError.notFound('Link not found');
   assertSafe(input.url);
   const updated = await repo.update(id, input);

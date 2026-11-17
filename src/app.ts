@@ -31,6 +31,7 @@ import governmentLinksRoutes from './modules/government-links/government-links.r
 import documentsRoutes from './modules/documents/documents.routes';
 import applicationsRoutes from './modules/applications/applications.routes';
 import meRoutes from './modules/me/me.routes';
+import categoriesRoutes from './modules/categories/categories.routes';
 import adminOverviewRoutes from './modules/admin-overview/admin-overview.routes';
 
 export function buildApp(): Express {
@@ -83,6 +84,7 @@ export function buildApp(): Express {
   app.use('/api/v1', applicationsRoutes);
   app.use('/api/v1', auditRoutes);
   app.use('/api/v1', meRoutes);
+  app.use('/api/v1', categoriesRoutes);
   app.use('/api/v1', adminOverviewRoutes);
 
   app.use(notFound);

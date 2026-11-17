@@ -48,10 +48,13 @@ describe('announcements (AC-11/12)', () => {
 });
 
 describe('government links (AC-12)', () => {
-  it('rejects a non-https link', async () => {
+  it('never stores an insecure link: http:// is upgraded to https://, other schemes are rejected', async () => {
     const a = await admin();
-    const res = await post(a.agent, '/api/v1/admin/government-links', { title: 'x', url: 'http://insecure.gov' });
-    expect(res.status).toBe(400);
+    const up = await post(a.agent, '/api/v1/admin/government-links', { title: 'x', url: 'http://insecure.gov' });
+    expect(up.status).toBe(201);
+    expect(up.body.link.url).toBe('https://insecure.gov');
+    const bad = await post(a.agent, '/api/v1/admin/government-links', { title: 'x', url: 'ftp://insecure.gov' });
+    expect(bad.status).toBe(400);
   });
 });
 

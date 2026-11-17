@@ -10,6 +10,7 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
   enableMfaSchema,
   type RegisterInput,
   type LoginInput,
@@ -77,6 +78,18 @@ router.post(
     const token = await auth.forgotPassword(valid<{ phone: string }>(req).phone, ctxOf(req));
     // Never reveal whether the account exists. In non-prod, return the token to ease testing.
     res.json({ ok: true, ...(isProd ? {} : { devToken: token }) });
+  }),
+);
+
+router.post(
+  '/auth/change-password',
+  requireAuth,
+  loginRateLimit, // wrong-current-password guesses count like login attempts
+  validate(changePasswordSchema),
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = valid<{ currentPassword: string; newPassword: string }>(req);
+    await auth.changePassword(req.user!.id, req.sessionID, currentPassword, newPassword, ctxOf(req));
+    res.json({ ok: true });
   }),
 );
 
