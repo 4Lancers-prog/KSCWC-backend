@@ -60,6 +60,11 @@ const UserSchema = new Schema(
     // centre logo (optional)
     logoKey: str,
     logoMime: str,
+    // Registration payment (council fee paid up-front; the admin verifies these at approval time).
+    registrationPaymentUtr: str,
+    registrationPaymentAmountPaise: { type: Number, default: null },
+    registrationPaymentProofKey: str,
+    registrationPaymentProofMime: str,
     // Operators: the ONE login currently allowed (see modules/devices/device-policy.ts).
     activeSession: {
       type: new Schema({ sessionId: String, deviceId: String, lastSeenAt: Date }, { _id: false }),
@@ -482,6 +487,10 @@ export interface UserRecord {
   aadhaarLast4?: string | null;
   panMasked?: string | null;
   logoKey?: string | null;
+  registrationPaymentUtr?: string | null;
+  registrationPaymentAmountPaise?: number | null;
+  registrationPaymentProofKey?: string | null;
+  registrationPaymentProofMime?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

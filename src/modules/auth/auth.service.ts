@@ -19,7 +19,10 @@ import type { SessionUser } from '../../shared/types/api';
 import type { RegisterInput, LoginInput } from '../../shared/schemas/auth.schema';
 import { writeAudit } from '../audit/audit.service';
 import { encryptSecret, decryptSecret } from '../../lib/crypto';
+import * as manualTopup from '../manual-topup/manual-topup.service';
 import * as repo from './auth.repository';
+
+type UploadFile = { buffer: Buffer; mimetype: string; size: number };
 
 const ADMIN_RESET_TTL_MS = 24 * 60 * 60 * 1000; // admin-made reset links: 24 hours
 
@@ -55,8 +58,45 @@ export async function setUserLogo(userId: string, file: { buffer: Buffer; mimety
   await UserModel.updateOne({ _id: userId }, { $set: { logoKey: key, logoMime: mime } });
 }
 
-export async function register(input: RegisterInput, ctx: Ctx, logo?: { buffer: Buffer; mimetype: string; size: number }): Promise<SessionUser> {
+/** Save the payment screenshot a user attaches on the last registration step. */
+export async function setRegistrationProof(userId: string, file: UploadFile) {
+  const { ext, mime } = checkImage(file, 'Payment screenshot');
+  const key = `registration-proofs/${userId}-${Date.now()}.${ext}`;
+  await storage.putPrivate(key, file.buffer, mime);
+  await UserModel.updateOne(
+    { _id: userId },
+    { $set: { registrationPaymentProofKey: key, registrationPaymentProofMime: mime } },
+  );
+}
+
+/**
+ * Public view of the payment scanner shown on the registration page. We reuse the same QR the
+ * admin already publishes for wallet top-ups, but expose it through an UNauthenticated path so
+ * a visitor who isn't logged in yet can see it. "not configured" is a normal state (no error).
+ */
+export async function getRegistrationScanner() {
+  const qr = await manualTopup.getPaymentQrPublic();
+  if (!qr.configured) return { configured: false as const };
+  return {
+    configured: true as const,
+    upiId: qr.upiId,
+    payeeName: qr.payeeName,
+    note: qr.note ?? null,
+    imageUrl: '/api/v1/auth/registration-scanner/image',
+  };
+}
+
+/** The scanner image bytes (same image as the wallet QR), served on a public route. */
+export const getRegistrationScannerImage = () => manualTopup.getPaymentQrImage();
+
+export async function register(
+  input: RegisterInput,
+  ctx: Ctx,
+  logo?: UploadFile,
+  paymentProof?: UploadFile,
+): Promise<SessionUser> {
   if (logo) checkImage(logo, 'Centre logo'); // reject a bad logo before creating the account
+  if (paymentProof) checkImage(paymentProof, 'Payment screenshot'); // reject a bad screenshot early
   const phone = normalizePhone(input.phone);
   const email = normalizeEmail(input.email);
 
@@ -89,10 +129,13 @@ export async function register(input: RegisterInput, ctx: Ctx, logo?: { buffer: 
     dob: input.dob ?? null,
     accountStatus: 'PENDING_APPROVAL',
     role: 'USER',
+    registrationPaymentUtr: input.paymentUtr ?? null,
+    registrationPaymentAmountPaise: input.paymentAmountPaise ?? null,
     ...aadhaar,
     ...protectPan(input.pan),
   });
   if (logo) await setUserLogo(user.id, logo);
+  if (paymentProof) await setRegistrationProof(user.id, paymentProof);
 
   await writeAudit({
     actorUserId: user.id,
@@ -101,7 +144,7 @@ export async function register(input: RegisterInput, ctx: Ctx, logo?: { buffer: 
     entityId: user.id,
     requestId: ctx.requestId,
     ip: ctx.ip,
-    after: { phone, status: user.accountStatus },
+    after: { phone, status: user.accountStatus, paymentUtr: input.paymentUtr ?? null },
   });
 
   // re-read so the reply includes the logo just saved

@@ -8,6 +8,7 @@ import { paginationSchema } from '../../shared/schemas/common.schema';
 import { ACCOUNT_STATUSES } from '../../shared/constants/account-status';
 import { resolvePage, paginate } from '../../common/utils/pagination';
 import { AppError } from '../../common/errors/app-error';
+import * as storage from '../../lib/storage';
 import * as users from './users.service';
 import * as devices from '../devices/device-policy';
 import { createAdminResetLink } from '../auth/auth.service';
@@ -47,6 +48,22 @@ router.get(
     const user = await users.getUser(valid<{ id: string }>(req, 'params').id);
     if (!user) throw AppError.notFound('User not found');
     res.json({ user });
+  }),
+);
+
+// Admin: view the payment screenshot a user attached when registering.
+router.get(
+  '/admin/users/:id/payment-proof',
+  requirePermission('users:read'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    const meta = await users.getPaymentProof(valid<{ id: string }>(req, 'params').id);
+    if (!meta) throw AppError.notFound('No payment screenshot for this registration');
+    const buffer = await storage.getPrivate(meta.key);
+    res.setHeader('Content-Type', meta.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(buffer);
   }),
 );
 

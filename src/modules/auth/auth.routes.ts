@@ -23,7 +23,7 @@ import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
 const router = Router();
-const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 2 } });
 const ctxOf = (req: import('express').Request) => ({ requestId: req.requestId, ip: req.ip });
 
 // Issue a CSRF token (SPA calls this on load, then echoes it in x-csrf-token).
@@ -32,13 +32,34 @@ router.get('/auth/csrf', (req, res) => {
   res.json({ csrfToken: token });
 });
 
+// Public: the payment scanner shown on the last registration step (visitor isn't logged in yet).
+router.get(
+  '/auth/registration-scanner',
+  asyncHandler(async (_req, res) => res.json(await auth.getRegistrationScanner())),
+);
+
+router.get(
+  '/auth/registration-scanner/image',
+  asyncHandler(async (_req, res) => {
+    const { buffer, mimeType } = await auth.getRegistrationScannerImage();
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.send(buffer);
+  }),
+);
+
 router.post(
   '/auth/register',
   publicSubmitRateLimit,
-  logoUpload.single('logo'), // optional centre logo sent with the form
+  // optional centre logo + optional payment screenshot, both sent with the form
+  logoUpload.fields([
+    { name: 'logo', maxCount: 1 },
+    { name: 'paymentProof', maxCount: 1 },
+  ]),
   validate(registerSchema),
   asyncHandler(async (req, res) => {
-    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), req.file);
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), files?.logo?.[0], files?.paymentProof?.[0]);
     res.status(201).json({ user, message: 'Registration received. An admin will review your account.' });
   }),
 );

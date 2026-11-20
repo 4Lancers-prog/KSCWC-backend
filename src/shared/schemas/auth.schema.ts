@@ -14,6 +14,17 @@ export const registerSchema = z.object({
   dob: z.coerce.date().optional(),
   aadhaar: aadhaarSchema,
   pan: panSchema,
+  // Registration-fee payment, captured on the last step after the user scans the admin's QR.
+  // Optional at the schema level so registration still works before an admin has published a QR;
+  // the sign-up form requires the UTR when a scanner is configured.
+  paymentUtr: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9]{6,32}$/, 'Enter the payment reference / UTR (6–32 letters or digits)')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  paymentAmountPaise: z.coerce.number().int().positive().max(100_00_000).optional(),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
