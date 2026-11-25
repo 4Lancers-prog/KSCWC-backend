@@ -60,6 +60,19 @@ const UserSchema = new Schema(
     // centre logo (optional)
     logoKey: str,
     logoMime: str,
+    // Postal PIN code of the centre.
+    pincode: str,
+    // Aadhaar & PAN card document images (uploaded at registration; admin verifies against the numbers).
+    aadhaarDocKey: str,
+    aadhaarDocMime: str,
+    panDocKey: str,
+    panDocMime: str,
+    // Shop photo + GPS captured at registration (admin verifies the centre is real and located).
+    shopPhotoKey: str,
+    shopPhotoMime: str,
+    shopLat: { type: Number, default: null },
+    shopLng: { type: Number, default: null },
+    shopGpsAccuracy: { type: Number, default: null },
     // Registration payment (council fee paid up-front; the admin verifies these at approval time).
     registrationPaymentUtr: str,
     registrationPaymentAmountPaise: { type: Number, default: null },
@@ -487,6 +500,16 @@ export interface UserRecord {
   aadhaarLast4?: string | null;
   panMasked?: string | null;
   logoKey?: string | null;
+  pincode?: string | null;
+  aadhaarDocKey?: string | null;
+  aadhaarDocMime?: string | null;
+  panDocKey?: string | null;
+  panDocMime?: string | null;
+  shopPhotoKey?: string | null;
+  shopPhotoMime?: string | null;
+  shopLat?: number | null;
+  shopLng?: number | null;
+  shopGpsAccuracy?: number | null;
   registrationPaymentUtr?: string | null;
   registrationPaymentAmountPaise?: number | null;
   registrationPaymentProofKey?: string | null;

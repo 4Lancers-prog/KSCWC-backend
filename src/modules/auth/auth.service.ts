@@ -58,6 +58,30 @@ export async function setUserLogo(userId: string, file: { buffer: Buffer; mimety
   await UserModel.updateOne({ _id: userId }, { $set: { logoKey: key, logoMime: mime } });
 }
 
+/** Save the shop photo captured on the first registration step. */
+export async function setShopPhoto(userId: string, file: UploadFile) {
+  const { ext, mime } = checkImage(file, 'Shop photo');
+  const key = `shop-photos/${userId}-${Date.now()}.${ext}`;
+  await storage.putPrivate(key, file.buffer, mime);
+  await UserModel.updateOne({ _id: userId }, { $set: { shopPhotoKey: key, shopPhotoMime: mime } });
+}
+
+/** Save the Aadhaar card image uploaded at registration. */
+export async function setAadhaarDoc(userId: string, file: UploadFile) {
+  const { ext, mime } = checkImage(file, 'Aadhaar card photo');
+  const key = `aadhaar-docs/${userId}-${Date.now()}.${ext}`;
+  await storage.putPrivate(key, file.buffer, mime);
+  await UserModel.updateOne({ _id: userId }, { $set: { aadhaarDocKey: key, aadhaarDocMime: mime } });
+}
+
+/** Save the PAN card image uploaded at registration. */
+export async function setPanDoc(userId: string, file: UploadFile) {
+  const { ext, mime } = checkImage(file, 'PAN card photo');
+  const key = `pan-docs/${userId}-${Date.now()}.${ext}`;
+  await storage.putPrivate(key, file.buffer, mime);
+  await UserModel.updateOne({ _id: userId }, { $set: { panDocKey: key, panDocMime: mime } });
+}
+
 /** Save the payment screenshot a user attaches on the last registration step. */
 export async function setRegistrationProof(userId: string, file: UploadFile) {
   const { ext, mime } = checkImage(file, 'Payment screenshot');
@@ -89,14 +113,20 @@ export async function getRegistrationScanner() {
 /** The scanner image bytes (same image as the wallet QR), served on a public route. */
 export const getRegistrationScannerImage = () => manualTopup.getPaymentQrImage();
 
-export async function register(
-  input: RegisterInput,
-  ctx: Ctx,
-  logo?: UploadFile,
-  paymentProof?: UploadFile,
-): Promise<SessionUser> {
-  if (logo) checkImage(logo, 'Centre logo'); // reject a bad logo before creating the account
-  if (paymentProof) checkImage(paymentProof, 'Payment screenshot'); // reject a bad screenshot early
+type RegisterFiles = {
+  shopPhoto?: UploadFile;
+  paymentProof?: UploadFile;
+  aadhaarDoc?: UploadFile;
+  panDoc?: UploadFile;
+};
+
+export async function register(input: RegisterInput, ctx: Ctx, files: RegisterFiles = {}): Promise<SessionUser> {
+  const { shopPhoto, paymentProof, aadhaarDoc, panDoc } = files;
+  // reject any bad upload before creating the account
+  if (shopPhoto) checkImage(shopPhoto, 'Shop photo');
+  if (paymentProof) checkImage(paymentProof, 'Payment screenshot');
+  if (aadhaarDoc) checkImage(aadhaarDoc, 'Aadhaar card photo');
+  if (panDoc) checkImage(panDoc, 'PAN card photo');
   const phone = normalizePhone(input.phone);
   const email = normalizeEmail(input.email);
 
@@ -129,12 +159,18 @@ export async function register(
     dob: input.dob ?? null,
     accountStatus: 'PENDING_APPROVAL',
     role: 'USER',
+    pincode: input.pincode ?? null,
+    shopLat: input.shopLat ?? null,
+    shopLng: input.shopLng ?? null,
+    shopGpsAccuracy: input.shopGpsAccuracy ?? null,
     registrationPaymentUtr: input.paymentUtr ?? null,
     registrationPaymentAmountPaise: input.paymentAmountPaise ?? null,
     ...aadhaar,
     ...protectPan(input.pan),
   });
-  if (logo) await setUserLogo(user.id, logo);
+  if (shopPhoto) await setShopPhoto(user.id, shopPhoto);
+  if (aadhaarDoc) await setAadhaarDoc(user.id, aadhaarDoc);
+  if (panDoc) await setPanDoc(user.id, panDoc);
   if (paymentProof) await setRegistrationProof(user.id, paymentProof);
 
   await writeAudit({

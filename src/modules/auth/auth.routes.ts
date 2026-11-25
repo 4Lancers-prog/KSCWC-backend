@@ -23,7 +23,7 @@ import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
 const router = Router();
-const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 2 } });
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 4 } });
 const ctxOf = (req: import('express').Request) => ({ requestId: req.requestId, ip: req.ip });
 
 // Issue a CSRF token (SPA calls this on load, then echoes it in x-csrf-token).
@@ -51,15 +51,22 @@ router.get(
 router.post(
   '/auth/register',
   publicSubmitRateLimit,
-  // optional centre logo + optional payment screenshot, both sent with the form
+  // optional uploads sent with the form: geotagged shop photo, Aadhaar & PAN card photos, payment screenshot
   logoUpload.fields([
-    { name: 'logo', maxCount: 1 },
+    { name: 'shopPhoto', maxCount: 1 },
+    { name: 'aadhaarDoc', maxCount: 1 },
+    { name: 'panDoc', maxCount: 1 },
     { name: 'paymentProof', maxCount: 1 },
   ]),
   validate(registerSchema),
   asyncHandler(async (req, res) => {
-    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
-    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), files?.logo?.[0], files?.paymentProof?.[0]);
+    const f = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), {
+      shopPhoto: f?.shopPhoto?.[0],
+      aadhaarDoc: f?.aadhaarDoc?.[0],
+      panDoc: f?.panDoc?.[0],
+      paymentProof: f?.paymentProof?.[0],
+    });
     res.status(201).json({ user, message: 'Registration received. An admin will review your account.' });
   }),
 );

@@ -51,6 +51,54 @@ router.get(
   }),
 );
 
+// Admin: view the geotagged shop photo a user captured when registering.
+router.get(
+  '/admin/users/:id/shop-photo',
+  requirePermission('users:read'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    const meta = await users.getShopPhoto(valid<{ id: string }>(req, 'params').id);
+    if (!meta) throw AppError.notFound('No shop photo for this registration');
+    const buffer = await storage.getPrivate(meta.key);
+    res.setHeader('Content-Type', meta.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(buffer);
+  }),
+);
+
+// Admin: view the Aadhaar card image a user uploaded when registering.
+router.get(
+  '/admin/users/:id/aadhaar-doc',
+  requirePermission('users:read'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    const meta = await users.getAadhaarDoc(valid<{ id: string }>(req, 'params').id);
+    if (!meta) throw AppError.notFound('No Aadhaar document for this registration');
+    const buffer = await storage.getPrivate(meta.key);
+    res.setHeader('Content-Type', meta.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(buffer);
+  }),
+);
+
+// Admin: view the PAN card image a user uploaded when registering.
+router.get(
+  '/admin/users/:id/pan-doc',
+  requirePermission('users:read'),
+  validate(idParam, 'params'),
+  asyncHandler(async (req, res) => {
+    const meta = await users.getPanDoc(valid<{ id: string }>(req, 'params').id);
+    if (!meta) throw AppError.notFound('No PAN document for this registration');
+    const buffer = await storage.getPrivate(meta.key);
+    res.setHeader('Content-Type', meta.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(buffer);
+  }),
+);
+
 // Admin: view the payment screenshot a user attached when registering.
 router.get(
   '/admin/users/:id/payment-proof',

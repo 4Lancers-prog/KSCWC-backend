@@ -54,3 +54,6 @@ export const reactivateUser = (id: string, actor: Actor) => transition(id, 'ACTI
 export const listUsers = repo.listUsers;
 export const getUser = repo.findByIdSafe;
 export const getPaymentProof = repo.getPaymentProof;
+export const getShopPhoto = repo.getShopPhoto;
+export const getAadhaarDoc = repo.getAadhaarDoc;
+export const getPanDoc = repo.getPanDoc;

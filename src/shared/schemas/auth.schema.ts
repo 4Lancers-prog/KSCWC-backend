@@ -14,6 +14,18 @@ export const registerSchema = z.object({
   dob: z.coerce.date().optional(),
   aadhaar: aadhaarSchema,
   pan: panSchema,
+  // Postal PIN code (6 digits). Optional at the schema level; the sign-up form requires it.
+  pincode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Enter a 6-digit PIN code')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  // Shop GPS, captured with the shop photo. Optional so registration still works if the browser
+  // blocks location; the sign-up form asks for it alongside the photo.
+  shopLat: z.coerce.number().min(-90).max(90).optional(),
+  shopLng: z.coerce.number().min(-180).max(180).optional(),
+  shopGpsAccuracy: z.coerce.number().nonnegative().max(100_000).optional(),
   // Registration-fee payment, captured on the last step after the user scans the admin's QR.
   // Optional at the schema level so registration still works before an admin has published a QR;
   // the sign-up form requires the UTR when a scanner is configured.
