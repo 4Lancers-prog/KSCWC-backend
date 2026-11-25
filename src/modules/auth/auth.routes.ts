@@ -23,7 +23,7 @@ import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
 const router = Router();
-const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 4 } });
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 5 } });
 const ctxOf = (req: import('express').Request) => ({ requestId: req.requestId, ip: req.ip });
 
 // Issue a CSRF token (SPA calls this on load, then echoes it in x-csrf-token).
@@ -53,6 +53,7 @@ router.post(
   publicSubmitRateLimit,
   // optional uploads sent with the form: geotagged shop photo, Aadhaar & PAN card photos, payment screenshot
   logoUpload.fields([
+    { name: 'logo', maxCount: 1 },
     { name: 'shopPhoto', maxCount: 1 },
     { name: 'aadhaarDoc', maxCount: 1 },
     { name: 'panDoc', maxCount: 1 },
@@ -62,6 +63,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const f = req.files as Record<string, Express.Multer.File[]> | undefined;
     const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), {
+      logo: f?.logo?.[0],
       shopPhoto: f?.shopPhoto?.[0],
       aadhaarDoc: f?.aadhaarDoc?.[0],
       panDoc: f?.panDoc?.[0],

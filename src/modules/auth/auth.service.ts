@@ -114,6 +114,7 @@ export async function getRegistrationScanner() {
 export const getRegistrationScannerImage = () => manualTopup.getPaymentQrImage();
 
 type RegisterFiles = {
+  logo?: UploadFile;
   shopPhoto?: UploadFile;
   paymentProof?: UploadFile;
   aadhaarDoc?: UploadFile;
@@ -121,8 +122,9 @@ type RegisterFiles = {
 };
 
 export async function register(input: RegisterInput, ctx: Ctx, files: RegisterFiles = {}): Promise<SessionUser> {
-  const { shopPhoto, paymentProof, aadhaarDoc, panDoc } = files;
+  const { logo, shopPhoto, paymentProof, aadhaarDoc, panDoc } = files;
   // reject any bad upload before creating the account
+  if (logo) checkImage(logo, 'Centre logo');
   if (shopPhoto) checkImage(shopPhoto, 'Shop photo');
   if (paymentProof) checkImage(paymentProof, 'Payment screenshot');
   if (aadhaarDoc) checkImage(aadhaarDoc, 'Aadhaar card photo');
@@ -168,6 +170,7 @@ export async function register(input: RegisterInput, ctx: Ctx, files: RegisterFi
     ...aadhaar,
     ...protectPan(input.pan),
   });
+  if (logo) await setUserLogo(user.id, logo);
   if (shopPhoto) await setShopPhoto(user.id, shopPhoto);
   if (aadhaarDoc) await setAadhaarDoc(user.id, aadhaarDoc);
   if (panDoc) await setPanDoc(user.id, panDoc);
