@@ -23,7 +23,7 @@ import { AppError } from '../../common/errors/app-error';
 import * as auth from './auth.service';
 
 const router = Router();
-const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 5 } });
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 8 } });
 const ctxOf = (req: import('express').Request) => ({ requestId: req.requestId, ip: req.ip });
 
 // Issue a CSRF token (SPA calls this on load, then echoes it in x-csrf-token).
@@ -51,23 +51,21 @@ router.get(
 router.post(
   '/auth/register',
   publicSubmitRateLimit,
-  // optional uploads sent with the form: geotagged shop photo, Aadhaar & PAN card photos, payment screenshot
-  logoUpload.fields([
-    { name: 'logo', maxCount: 1 },
-    { name: 'shopPhoto', maxCount: 1 },
-    { name: 'aadhaarDoc', maxCount: 1 },
-    { name: 'panDoc', maxCount: 1 },
-    { name: 'paymentProof', maxCount: 1 },
-  ]),
+  // Optional uploads sent with the form: centre logo, geotagged shop photo, Aadhaar & PAN
+  // card photos, payment screenshot. We accept files from any field (so a differing frontend
+  // field name can't crash the form with "Unexpected file field") and then read the ones we
+  // know, matching a few common name variants. Unknown files are ignored.
+  logoUpload.any(),
   validate(registerSchema),
   asyncHandler(async (req, res) => {
-    const f = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const pick = (...names: string[]) => files.find((file) => names.includes(file.fieldname));
     const user = await auth.register(valid<RegisterInput>(req), ctxOf(req), {
-      logo: f?.logo?.[0],
-      shopPhoto: f?.shopPhoto?.[0],
-      aadhaarDoc: f?.aadhaarDoc?.[0],
-      panDoc: f?.panDoc?.[0],
-      paymentProof: f?.paymentProof?.[0],
+      logo: pick('logo', 'centreLogo', 'logoImage'),
+      shopPhoto: pick('shopPhoto', 'shop_photo', 'shopImage', 'photo'),
+      aadhaarDoc: pick('aadhaarDoc', 'aadhaar', 'aadhaarPhoto', 'aadhaarImage'),
+      panDoc: pick('panDoc', 'pan', 'panPhoto', 'panImage'),
+      paymentProof: pick('paymentProof', 'paymentScreenshot', 'screenshot', 'proof', 'paymentImage'),
     });
     res.status(201).json({ user, message: 'Registration received. An admin will review your account.' });
   }),
