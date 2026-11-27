@@ -22,6 +22,9 @@ const EnvSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
+  // File-storage backend: 'mongodb' (default — bytes in MongoDB, persists across redeploys),
+  // 'supabase' (when SUPABASE_* are set), or 'local' (local disk; dev/self-host only).
+  STORAGE_DRIVER: z.enum(['mongodb', 'supabase', 'local']).optional(),
   SUPABASE_URL: z.string().optional().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
   OBJECT_STORAGE_BUCKET_PRIVATE: z.string().default('kscwc-private'),
