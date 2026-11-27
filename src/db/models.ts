@@ -470,6 +470,19 @@ export const Grievance = model('Grievance', GrievanceSchema, 'grievances');
 export const AuditLog = model('AuditLog', AuditLogSchema, 'audit_logs');
 export const SystemSetting = model('SystemSetting', SystemSettingSchema, 'system_settings');
 
+// ── Stored files (QR, ID/shop photos, payment proofs, logos) kept in MongoDB so the bytes
+//    survive redeploys on ephemeral hosts. `_id` is the storage key (e.g. "payment-qr/abc.png").
+//    Files are small (uploads are size-limited and images are resized), well under the 16MB doc cap.
+const StoredFileSchema = new Schema(
+  {
+    _id: { type: String },
+    data: { type: Buffer, required: true },
+    contentType: { type: String, default: 'application/octet-stream' },
+  },
+  ts,
+);
+export const StoredFile = model('StoredFile', StoredFileSchema, 'stored_files');
+
  
 export const ALL_MODELS: mongoose.Model<any>[] = [
   User, UserDevice, Category, PasswordResetToken, Service, Customer, CustomerStatusHistory, WalletAccount, WalletTransaction,
