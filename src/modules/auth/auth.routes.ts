@@ -128,35 +128,4 @@ router.post(
   '/auth/reset-password',
   validate(resetPasswordSchema),
   asyncHandler(async (req, res) => {
-    const { token, password } = valid<{ token: string; password: string }>(req);
-    await auth.resetPassword(token, password, ctxOf(req));
-    res.json({ ok: true });
-  }),
-);
-
-// ── MFA enrolment (admins) ──
-router.post(
-  '/auth/mfa/setup',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const u = await authRepo.findById(req.user!.id);
-    if (!u) throw AppError.unauthorized();
-    const { secret, otpauthUrl } = await auth.beginMfaEnrolment(u);
-    res.json({ secret, otpauthUrl });
-  }),
-);
-
-router.post(
-  '/auth/mfa/confirm',
-  requireAuth,
-  validate(enableMfaSchema),
-  asyncHandler(async (req, res) => {
-    const u = await authRepo.findById(req.user!.id);
-    if (!u) throw AppError.unauthorized();
-    await auth.confirmMfa(u, valid<{ token: string }>(req).token, ctxOf(req));
-    req.session.mfaSetupRequired = false; // enrolment complete — lift the restriction
-    res.json({ ok: true });
-  }),
-);
-
-export default router;
+    const { token, password } =
