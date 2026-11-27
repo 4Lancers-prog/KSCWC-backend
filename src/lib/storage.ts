@@ -9,6 +9,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
+import { connectDb } from './db';
+import { StoredFile } from '../db/models';
 
 export interface StorageBackend {
   putPrivate(key: string, data: Buffer, contentType?: string): Promise<string>;
@@ -81,11 +83,44 @@ function createSupabaseBackend(): StorageBackend {
   };
 }
 
+// ── MongoDB backend ───────────────────────────────────────────────────────
+// Stores the bytes in the `stored_files` collection, so files persist across redeploys on
+// ephemeral hosts (Railway, Render, …) with no extra service. Default when Supabase isn't set.
+function createMongoBackend(): StorageBackend {
+  return {
+    async putPrivate(key, data, contentType) {
+      await connectDb();
+      await StoredFile.updateOne(
+        { _id: key },
+        { $set: { data, contentType: contentType ?? 'application/octet-stream' } },
+        { upsert: true },
+      );
+      return key;
+    },
+    async getPrivate(key) {
+      await connectDb();
+      const doc = await StoredFile.findById(key);
+      if (!doc) throw new Error(`storage object not found: ${key}`);
+      const raw = doc.data as unknown;
+      return Buffer.isBuffer(raw) ? raw : Buffer.from((raw as { buffer?: ArrayBuffer }).buffer ?? (raw as ArrayBuffer));
+    },
+    async existsPrivate(key) {
+      await connectDb();
+      return !!(await StoredFile.exists({ _id: key }));
+    },
+    // No signed URLs — routes stream via getPrivate (same as local-fs).
+    getSignedUrl: async () => null,
+  };
+}
+
 const useSupabase = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
-const backend: StorageBackend = useSupabase ? createSupabaseBackend() : localBackend;
+// Default to MongoDB (durable, always available). SUPABASE_* opts into Supabase; STORAGE_DRIVER overrides.
+const driver = env.STORAGE_DRIVER ?? (useSupabase ? 'supabase' : 'mongodb');
+const backend: StorageBackend =
+  driver === 'local' ? localBackend : driver === 'supabase' ? createSupabaseBackend() : createMongoBackend();
 
 export const putPrivate = (key: string, data: Buffer, contentType?: string) => backend.putPrivate(key, data, contentType);
 export const getPrivate = (key: string) => backend.getPrivate(key);
 export const existsPrivate = (key: string) => backend.existsPrivate(key);
 export const getSignedUrl = (key: string, expiresInSeconds?: number) => backend.getSignedUrl(key, expiresInSeconds);
-export const storageBackendName = useSupabase ? 'supabase' : 'local-fs';
+export const storageBackendName = driver === 'local' ? 'local-fs' : driver;
